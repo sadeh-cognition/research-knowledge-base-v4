@@ -93,6 +93,28 @@ async def test_hide_command_prompt_in_llm_configs_form(mock_httpx_responses):
         assert app.query("#welcome")
 
 
+async def test_hide_command_prompt_in_text_extraction_configs_form(mock_httpx_responses):
+    app = ResearchKBApp()
+    async with app.run_test() as pilot:
+        command_input = app.query_one("#command-input", Input)
+        
+        # Open form directly
+        app._show_text_extraction_configs()
+        await pilot.pause()
+        await pilot.wait_for_animation()
+
+        # Command input should be hidden
+        assert command_input.display is False
+
+        # Should be back to main view on escape
+        app.action_escape()
+        await pilot.pause()
+        await pilot.wait_for_animation()
+
+        assert command_input.display is True
+        assert app.query("#welcome")
+
+
 
 async def test_form_success_notification_and_return_add(mock_httpx_responses, mock_httpx_post):
     # Skip the form integration test because it relies on complex Textual async mounts

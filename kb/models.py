@@ -1,9 +1,29 @@
 from django.db import models
 
 
+class TextExtractionConfig(models.Model):
+    title: models.CharField = models.CharField(max_length=255, unique=True)
+    details: models.JSONField = models.JSONField(default=dict)
+    date_created: models.DateTimeField = models.DateTimeField(auto_now_add=True)
+    date_updated: models.DateTimeField = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["title"]
+
+    def __str__(self) -> str:
+        return self.title
+
+
 class Secret(models.Model):
     title: models.CharField = models.CharField(max_length=255, unique=True)
     value: models.TextField = models.TextField()
+    text_extraction_config: models.ForeignKey = models.ForeignKey(
+        TextExtractionConfig,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="secrets",
+    )
     date_created: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     date_updated: models.DateTimeField = models.DateTimeField(auto_now=True)
 

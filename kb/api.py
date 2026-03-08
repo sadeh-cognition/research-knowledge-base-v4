@@ -1,7 +1,7 @@
 from django.shortcuts import get_object_or_404
 from ninja import NinjaAPI, Router
 
-from kb.models import Chunk, ChunkConfig, LLMConfig, Resource, Secret
+from kb.models import Chunk, ChunkConfig, LLMConfig, Resource, Secret, TextExtractionConfig
 from kb.schemas import (
     ChatHistoryOut,
     ChatMessageIn,
@@ -15,6 +15,7 @@ from kb.schemas import (
     ResourceOut,
     SecretIn,
     SecretOut,
+    TextExtractionConfigOut,
     DefaultLLMConfigIn,
 )
 from kb.services import chat as chat_service
@@ -50,8 +51,9 @@ resource_router = Router(tags=["resources"])
 @resource_router.post("/", response=ResourceOut)
 def create_resource(request, payload: ResourceIn) -> Resource:
     """Create a resource: extract text via Jina, chunk it, persist to DB + ChromaDB."""
-    # Get Jina API key from secrets
-    jina_secret = Secret.objects.filter(title="JINA_API_KEY").first()
+    # Get Jina API key from secrets via TextExtractionConfig
+    jina_config = TextExtractionConfig.objects.filter(title="JINA AI API").first()
+    jina_secret = jina_config.secrets.first() if jina_config else None
     api_key = jina_secret.value if jina_secret else ""
 
     # Extract text using Jina Reader API
@@ -119,6 +121,44 @@ def list_chunk_configs(request) -> list[ChunkConfig]:
 
 
 api.add_router("/chunk-configs", chunk_config_router)
+
+# ---- TextExtractionConfig Endpoints ----
+
+text_extraction_config_router = Router(tags=["text-extraction-configs"])
+
+
+@text_extraction_config_router.get("/", response=list[TextExtractionConfigOut])
+def list_text_extraction_configs(request) -> list[TextExtractionConfig]:
+    return list(TextExtractionConfig.objects.all())
+
+
+@text_extraction_config_router.post("/{config_id}/secret/", response=SecretOut)
+def set_text_extraction_config_secret(request, config_id: int, payload: SecretIn) -> Secret:
+    config = get_object_or_404(TextExtractionConfig, id=config_id)
+    secret = config.secrets.first()
+    if secret:
+        secret.title = payload.title
+        secret.value = payload.value
+        secret.save()
+    else:
+        secret = Secret.objects.create(
+            title=payload.title,
+            value=payload.value,
+            text_extraction_config=config
+        )
+    return secret
+
+
+@text_extraction_config_router.get("/{config_id}/secret/", response=SecretOut)
+def get_text_extraction_config_secret(request, config_id: int) -> Secret:
+    config = get_object_or_404(TextExtractionConfig, id=config_id)
+    secret = config.secrets.first()
+    if not secret:
+        return api.create_response(request, {"detail": "Not found"}, status=404)
+    return secret
+
+
+api.add_router("/text-extraction-configs", text_extraction_config_router)
 
 # ---- LLMConfig Endpoints ----
 

@@ -203,3 +203,39 @@ class TestDefaultLLMConfigEndpoints:
         # Verify old one is no longer default
         first = LLMConfig.objects.get(id=first_id)
         assert first.is_default is False
+
+# ---- TextExtractionConfig Tests ----
+
+
+class TestTextExtractionConfigEndpoints:
+    def test_list_text_extraction_configs(self, db):
+        response = client.get("/text-extraction-configs/")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) >= 1
+        assert any(c["title"] == "JINA AI API" for c in data)
+
+    def test_set_and_get_text_extraction_config_secret(self, db):
+        from kb.models import TextExtractionConfig
+        config = TextExtractionConfig.objects.get(title="JINA AI API")
+
+        # Get when no secret exists
+        response = client.get(f"/text-extraction-configs/{config.id}/secret/")
+        assert response.status_code == 404
+
+        # Set secret
+        payload = SecretIn(title="JINA_API_KEY", value="my-jina-key")
+        response = client.post(f"/text-extraction-configs/{config.id}/secret/", json=payload.dict())
+        assert response.status_code == 200
+        data = SecretOut(**response.json())
+        assert data.title == "JINA_API_KEY"
+
+        # Get secret
+        response = client.get(f"/text-extraction-configs/{config.id}/secret/")
+        assert response.status_code == 200
+        data = SecretOut(**response.json())
+        assert data.title == "JINA_API_KEY"
+
+        # Verify only one secret exists for this config
+        assert config.secrets.count() == 1
+

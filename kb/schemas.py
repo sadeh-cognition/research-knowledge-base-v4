@@ -50,6 +50,17 @@ class ChunkConfigOut(Schema):
     details: dict[str, Any]
 
 
+# --- TextExtractionConfig Schemas ---
+
+
+class TextExtractionConfigOut(Schema):
+    id: int
+    title: str
+    details: dict[str, Any]
+    date_created: datetime
+
+
+
 # --- Chunk Schemas ---
 
 

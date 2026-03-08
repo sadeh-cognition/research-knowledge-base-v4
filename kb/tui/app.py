@@ -168,6 +168,34 @@ class ResearchKBApp(App):
     def on_mount(self) -> None:
         """Called when the app is mounted."""
         self._check_default_llm()
+        self._check_jina_api_key()
+
+    def _check_jina_api_key(self) -> None:
+        """Check if JINA AI API key is configured."""
+        try:
+            # Get text extraction configs
+            response = httpx.get(f"{BASE_URL}/text-extraction-configs/", timeout=10.0)
+            if response.status_code == 200:
+                configs = response.json()
+                jina_config = next((c for c in configs if c["title"] == "JINA AI API"), None)
+                if jina_config:
+                    # Check if secret exists
+                    secret_response = httpx.get(
+                        f"{BASE_URL}/text-extraction-configs/{jina_config['id']}/secret/",
+                        timeout=10.0
+                    )
+                    if secret_response.status_code == 404:
+                        self.notify(
+                            "JINA AI API key not configured! Please use 'text-extraction-configs' to add it.",
+                            severity="warning",
+                            timeout=10.0,
+                        )
+        except Exception as e:
+            self.notify(
+                f"Could not connect to backend to check Text Extraction configs: {e}",
+                severity="error",
+                timeout=5.0,
+            )
 
     def _check_default_llm(self) -> None:
         """Check if a default LLM is configured."""
@@ -199,6 +227,7 @@ class ResearchKBApp(App):
                 "  [bold]list[/bold]      - List all resources\n"
                 "  [bold]chat <id>[/bold] - Chat with a resource\n"
                 "  [bold]llm-configs[/bold] - LLM Configs\n"
+                "  [bold]text-extraction-configs[/bold] - Text Extraction Configs\n"
                 "  [bold]help[/bold]      - Show this help\n",
                 id="welcome",
             ),
@@ -227,6 +256,9 @@ class ResearchKBApp(App):
         elif input_id == "llm-api-key":
             self._handle_llm_configs()
             return
+        elif input_id == "jina-api-key":
+            self._handle_text_extraction_configs()
+            return
         elif input_id != "command-input":
             return
 
@@ -250,6 +282,8 @@ class ResearchKBApp(App):
             self._start_chat(args)
         elif cmd == "llm-configs":
             self._show_llm_configs()
+        elif cmd == "text-extraction-configs":
+            self._show_text_extraction_configs()
         else:
             self._show_message(f"Unknown command: {cmd}. Type 'help' for commands.")
 
@@ -266,6 +300,7 @@ class ResearchKBApp(App):
             "  [bold]list[/bold]      - List all resources\n"
             "  [bold]chat <id>[/bold] - Chat with a resource\n"
             "  [bold]llm-configs[/bold] - LLM Configs\n"
+            "  [bold]text-extraction-configs[/bold] - Text Extraction Configs\n"
             "  [bold]help[/bold]      - Show this help\n"
         )
         command_input = self.query_one("#command-input", Input)
@@ -488,3 +523,103 @@ class ResearchKBApp(App):
                 self._show_message(f"[red]Error: {response.text}[/red]")
         except Exception as e:
             self._show_message(f"[red]Error: {e}[/red]")
+
+    # ---- Text Extraction Configs ----
+
+    def _show_text_extraction_configs(self) -> None:
+        self.query_one("#command-input", Input).display = False
+        container = self.query_one("#main-container", Container)
+        container.remove_children()
+
+        configs_info = "[bold]Text Extraction Configurations:[/bold]\n\n"
+        jina_config_id = None
+        jina_configured = False
+
+        try:
+            response = httpx.get(f"{BASE_URL}/text-extraction-configs/", timeout=10.0)
+            if response.status_code == 200:
+                configs = response.json()
+                if configs:
+                    for c in configs:
+                        configs_info += f"  - {c.get('title')}\n"
+                        if c.get("title") == "JINA AI API":
+                            jina_config_id = c.get("id")
+                else:
+                    configs_info += "  [yellow]No configurations found.[/yellow]\n"
+
+                # Check secret for JINA AI API
+                if jina_config_id is not None:
+                    sec_response = httpx.get(
+                        f"{BASE_URL}/text-extraction-configs/{jina_config_id}/secret/",
+                        timeout=10.0
+                    )
+                    if sec_response.status_code == 200:
+                        jina_configured = True
+                        configs_info += "\n[green]JINA AI API Key is configured.[/green]\n"
+
+        except Exception:
+            configs_info += "  [red]Could not fetch configurations.[/red]\n"
+
+        self._jina_config_id = jina_config_id
+
+        if not jina_configured and jina_config_id is not None:
+            container.mount(
+                Container(
+                    Label(configs_info),
+                    Label("\n[bold]Configure JINA AI API[/bold]"),
+                    Label("Please provide your API key. Get a free API key at: https://jina.ai/reader/"),
+                    Input(placeholder="jina_...", id="jina-api-key", password=True),
+                    Label("Press Enter on API Key field to submit"),
+                    classes="form-container",
+                )
+            )
+            # Focus
+            def _focus_input():
+                try:
+                    self.query_one("#jina-api-key", Input).focus()
+                except Exception:
+                    pass
+            self.call_after_refresh(_focus_input)
+        else:
+            container.mount(
+                Container(
+                    Label(configs_info),
+                    Label("\n[italic]All configurations are set. Press Escape to return.[/italic]"),
+                    classes="form-container"
+                )
+            )
+
+    def _handle_text_extraction_configs(self) -> None:
+        try:
+            api_key_input = self.query_one("#jina-api-key", Input)
+            api_key = api_key_input.value.strip()
+
+            if not api_key:
+                self._show_message("[red]API Key is required.[/red]")
+                return
+
+            if not getattr(self, "_jina_config_id", None):
+                self._show_message("[red]JINA AI API config not found.[/red]")
+                return
+
+            from kb.schemas import SecretIn
+            payload = SecretIn(title="JINA_API_KEY", value=api_key)
+
+            response = httpx.post(
+                f"{BASE_URL}/text-extraction-configs/{self._jina_config_id}/secret/",
+                json=payload.dict(),
+                timeout=10.0,
+            )
+            if response.status_code == 200:
+                self.notify(
+                    "JINA AI API Key configured successfully!",
+                    title="Success",
+                    severity="information"
+                )
+                self._show_welcome()
+            else:
+                self._show_message(f"[red]Error: {response.text}[/red]")
+
+        except Exception as e:
+            self._show_message(f"[red]Error: {e}[/red]")
+
