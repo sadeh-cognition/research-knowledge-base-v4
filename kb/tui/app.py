@@ -169,6 +169,7 @@ class ResearchKBApp(App):
         """Called when the app is mounted."""
         self._check_default_llm()
         self._check_jina_api_key()
+        self._check_embedding_model()
 
     def _check_jina_api_key(self) -> None:
         """Check if JINA AI API key is configured."""
@@ -213,6 +214,31 @@ class ResearchKBApp(App):
         except Exception as e:
             self.notify(
                 f"Could not connect to backend to check LLM configuration: {e}",
+                severity="error",
+                timeout=5.0,
+            )
+
+    def _check_embedding_model(self) -> None:
+        """Check if the embedding model is running and loaded."""
+        try:
+            response = httpx.get(f"{BASE_URL}/embedding-configs/status/", timeout=10.0)
+            if response.status_code == 200:
+                data = response.json()
+                if not data["is_valid"]:
+                    self.notify(
+                        f"Embedding Provider Issue: {data['message']}",
+                        severity="warning",
+                        timeout=10.0,
+                    )
+            else:
+                self.notify(
+                    f"Could not check embedding status: {response.text}",
+                    severity="error",
+                    timeout=5.0,
+                )
+        except Exception as e:
+            self.notify(
+                f"Could not connect to backend to check embedding status: {e}",
                 severity="error",
                 timeout=5.0,
             )

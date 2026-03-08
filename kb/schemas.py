@@ -96,6 +96,16 @@ class LLMConfigOut(Schema):
     date_created: datetime
 
 
+# --- EmbeddingModelConfig Schemas ---
+
+
+class EmbeddingStatusOut(Schema):
+    is_valid: bool
+    message: str
+    provider: str | None = None
+    model_name: str | None = None
+
+
 # --- Chat Schemas ---
 
 

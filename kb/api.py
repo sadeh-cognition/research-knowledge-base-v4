@@ -1,7 +1,15 @@
 from django.shortcuts import get_object_or_404
 from ninja import NinjaAPI, Router
 
-from kb.models import Chunk, ChunkConfig, LLMConfig, Resource, Secret, TextExtractionConfig
+from kb.models import (
+    Chunk,
+    ChunkConfig,
+    LLMConfig,
+    Resource,
+    Secret,
+    TextExtractionConfig,
+    EmbeddingModelConfig,
+)
 from kb.schemas import (
     ChatHistoryOut,
     ChatMessageIn,
@@ -17,6 +25,7 @@ from kb.schemas import (
     SecretOut,
     TextExtractionConfigOut,
     DefaultLLMConfigIn,
+    EmbeddingStatusOut,
 )
 from kb.services import chat as chat_service
 from kb.services import chromadb_service
@@ -212,6 +221,77 @@ def create_llm_config(request, payload: LLMConfigIn) -> LLMConfig:
 
 
 api.add_router("/llm-configs", llm_config_router)
+
+# ---- EmbeddingModelConfig Endpoints ----
+
+embedding_config_router = Router(tags=["embedding-configs"])
+
+
+@embedding_config_router.get("/status/", response=EmbeddingStatusOut)
+def get_embedding_status(request) -> dict:
+    import httpx
+    from django.conf import settings
+
+    config = EmbeddingModelConfig.objects.filter(is_active=True).first()
+    if not config:
+        return {
+            "is_valid": False,
+            "message": "No active embedding model configuration found",
+        }
+
+    if config.model_provider == "LMStudio":
+        try:
+            response = httpx.get(f"{settings.LMSTUDIO_BASE_URL}/v1/models", timeout=5.0)
+            if response.status_code != 200:
+                return {
+                    "is_valid": False,
+                    "message": f"LMStudio returned error: {response.status_code}",
+                    "provider": "LMStudio",
+                    "model_name": config.model_name,
+                }
+
+            models_data = response.json()
+            # The structure for /v1/models is usually {"data": [{"id": "model-id", ...}, ...]}
+            loaded_models = [m.get("id") for m in models_data.get("data", [])]
+
+            if config.model_name in loaded_models:
+                return {
+                    "is_valid": True,
+                    "message": "LMStudio server is running and model is loaded",
+                    "provider": "LMStudio",
+                    "model_name": config.model_name,
+                }
+            else:
+                return {
+                    "is_valid": False,
+                    "message": f"Model '{config.model_name}' not loaded in LMStudio",
+                    "provider": "LMStudio",
+                    "model_name": config.model_name,
+                }
+        except httpx.ConnectError:
+            return {
+                "is_valid": False,
+                "message": "LMStudio server not running",
+                "provider": "LMStudio",
+                "model_name": config.model_name,
+            }
+        except Exception as e:
+            return {
+                "is_valid": False,
+                "message": f"Error connecting to LMStudio: {str(e)}",
+                "provider": "LMStudio",
+                "model_name": config.model_name,
+            }
+    else:
+        return {
+            "is_valid": False,
+            "message": f"Status check not implemented for provider '{config.model_provider}'",
+            "provider": config.model_provider,
+            "model_name": config.model_name,
+        }
+
+
+api.add_router("/embedding-configs", embedding_config_router)
 
 # ---- Chat Endpoints ----
 
