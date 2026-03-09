@@ -136,3 +136,67 @@ def get_chat_list() -> list[dict]:
     # Sort by date_updated descending
     results.sort(key=lambda x: x["date_updated"], reverse=True)
     return results
+def continue_chat(
+    chat_id: int,
+    user_message: str,
+    llm_config: LLMConfig,
+) -> tuple[str, Chat]:
+    """Continue an existing chat.
+
+    Args:
+        chat_id: The chat database model ID.
+        user_message: The user's message.
+        llm_config: LLM configuration to use.
+
+    Returns:
+        Tuple of (AI response text, Chat instance).
+    """
+    user = _get_or_create_chat_user()
+    chat_db_model = ChatModel.objects.get(id=chat_id)
+    
+    # Reconstruct Chat instance from DB model
+    # Chat.create() creates a new model, we want to wrap existing one.
+    # Looking at Chat dataclass in django_llm_chat/chat.py:
+    # @dataclass
+    # class Chat:
+    #     chat_db_model: ChatDBModel
+    #     llm_user: object
+    #     default_user: object
+    
+    # We need to get llm_user and default_user. 
+    # django_llm_chat/chat.py handles this in Chat.create().
+    # We can probably use a similar logic or see if there's a better way.
+    
+    llm_user, _ = User.objects.get_or_create(
+        username="litellm",
+        defaults={"password": "litellm"}
+    )
+
+    default_user, _ = User.objects.get_or_create(
+        username="djllmchat",
+        defaults={"password": "djllmchat"}
+    )
+
+    chat_instance = Chat(
+        chat_db_model=chat_db_model,
+        llm_user=llm_user,
+        default_user=default_user,
+    )
+
+    # Determine the model name
+    model_name = llm_config.model_name
+    api_key = llm_config.secret.value if llm_config.secret else None
+    model_name = llm_service.setup_llm_config(
+        model_name=llm_config.model_name,
+        provider=llm_config.provider,
+        api_key=api_key,
+    )
+
+    ai_msg, _, _ = chat_instance.send_user_msg_to_llm(
+        model_name=model_name,
+        text=user_message,
+        user=user,
+        include_chat_history=True,
+    )
+
+    return ai_msg.text, chat_instance

@@ -57,13 +57,24 @@ def resource_with_chunks(db, resource, chunk_config) -> Resource:
     )
     return resource
 
+@pytest.fixture(autouse=True)
+def chat_users(db):
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    # Create the users that django-llm-chat expects/creates but with a bug
+    User.objects.get_or_create(username="litellm", defaults={"password": "password"})
+    User.objects.get_or_create(username="djllmchat", defaults={"password": "password"})
+    # Also create djllmchat-user just in case
+    User.objects.get_or_create(username="djllmchat-user", defaults={"password": "password"})
 
 @pytest.fixture
 def llm_config(db, secret) -> LLMConfig:
+    import os
     return baker.make(
         LLMConfig,
         name="test-llm",
-        model_name="ollama_chat/qwen3:4b",
+        model_name="groq/llama-3.1-8b-instant",
+        provider="groq",
         is_default=True,
-        secret=secret,
+        secret=baker.make(Secret, title="GROQ_API_KEY", value=os.environ.get("GROQ_API_KEY", "test-key"))
     )

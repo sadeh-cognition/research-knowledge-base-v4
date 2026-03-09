@@ -115,7 +115,8 @@ class EmbeddingStatusOut(Schema):
 
 
 class ChatMessageIn(Schema):
-    resource_id: int
+    resource_id: int | None = None
+    chat_id: int | None = None
     message: str
     llm_config_id: int | None = None  # Uses default if not specified
 

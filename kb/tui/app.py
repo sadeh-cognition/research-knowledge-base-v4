@@ -29,11 +29,38 @@ class ChatMessage(Static):
 class ResourceChatScreen(Container):
     """Chat interface for chatting with a resource."""
 
-    def __init__(self, resource_id: int, resource_url: str) -> None:
+    def __init__(self, resource_id: int, resource_url: str, chat_id: int | None = None) -> None:
         super().__init__()
         self.resource_id = resource_id
         self.resource_url = resource_url
-        self.chat_id: int | None = None
+        self.chat_id = chat_id
+
+    def on_mount(self) -> None:
+        """Called when the screen is mounted."""
+        if self.chat_id:
+            self._load_history()
+
+    def _load_history(self) -> None:
+        """Load history for an existing chat."""
+        messages_container = self.query_one("#chat-messages", VerticalScroll)
+        messages_container.mount(ChatMessage("Loading history...", is_user=False))
+        
+        try:
+            response = httpx.get(f"{BASE_URL}/chat/{self.chat_id}/messages/", timeout=10.0)
+            messages_container.remove_children()
+            if response.status_code == 200:
+                messages = response.json()
+                for msg in messages:
+                    if msg["type"] == "system":
+                        continue
+                    is_user = msg["type"] == "user"
+                    messages_container.mount(ChatMessage(msg["text"], is_user=is_user))
+                messages_container.scroll_end()
+            else:
+                messages_container.mount(ChatMessage(f"Error loading history: {response.text}", is_user=False))
+        except Exception as e:
+            logger.exception("Error loading chat history")
+            messages_container.mount(ChatMessage(f"Error loading history: {e}", is_user=False))
 
     def compose(self) -> ComposeResult:
         yield Label(
@@ -57,7 +84,8 @@ class ResourceChatScreen(Container):
             from kb.schemas import ChatMessageIn
 
             payload = ChatMessageIn(
-                resource_id=self.resource_id,
+                resource_id=self.resource_id if self.chat_id is None else None,
+                chat_id=self.chat_id,
                 message=message,
             )
             response = httpx.post(
@@ -256,8 +284,9 @@ class ResearchKBApp(App):
                 "Commands:\n"
                 "  [bold]add[/bold]       - Add a new resource\n"
                 "  [bold]list[/bold]      - List all resources\n"
-                "  [bold]chats[/bold]     - List all chats\n"
-                "  [bold]chat <id>[/bold] - Chat with a resource\n"
+                "  [bold]chats[/bold]            - List all chats\n"
+                "  [bold]chat <res_id>[/bold]    - Start a NEW chat with a resource\n"
+                "  [bold]continue <chat_id>[/bold] - Continue an existing chat\n"
                 "  [bold]llm-configs[/bold] - LLM Configs\n"
                 "  [bold]text-extraction-configs[/bold] - Text Extraction Configs\n"
                 "  [bold]help[/bold]      - Show this help\n",
@@ -314,6 +343,8 @@ class ResearchKBApp(App):
             self._list_chats()
         elif cmd == "chat":
             self._start_chat(args)
+        elif cmd == "continue":
+            self._continue_chat(args)
         elif cmd == "llm-configs":
             self._show_llm_configs()
         elif cmd == "text-extraction-configs":
@@ -337,8 +368,9 @@ class ResearchKBApp(App):
             "Commands:\n"
             "  [bold]add[/bold]       - Add a new resource\n"
             "  [bold]list[/bold]      - List all resources\n"
-            "  [bold]chats[/bold]     - List all chats\n"
-            "  [bold]chat <id>[/bold] - Chat with a resource\n"
+            "  [bold]chats[/bold]            - List all chats\n"
+            "  [bold]chat <res_id>[/bold]    - Start a NEW chat with a resource\n"
+            "  [bold]continue <chat_id>[/bold] - Continue an existing chat\n"
             "  [bold]llm-configs[/bold] - LLM Configs\n"
             "  [bold]text-extraction-configs[/bold] - Text Extraction Configs\n"
             "  [bold]help[/bold]      - Show this help\n"
@@ -451,10 +483,11 @@ class ResearchKBApp(App):
                         last_msg = last_msg[:47] + "..."
                     
                     lines.append(
-                        f"  [bold]{c['id']}[/bold] | {c['resource_url']}\n"
+                        f"  [bold]ID: {c['id']}[/bold] | Res ID: {c['resource_id']} | {c['resource_url']}\n"
                         f"    [italic]{last_msg}[/italic]"
                     )
-                lines.append("\nUse 'chat <id>' (using resource ID) to start a new chat or continue.")
+                lines.append("\nUse 'continue <chat_id>' to resume a chat.")
+                lines.append("Use 'chat <resource_id>' to start a new chat.")
                 self._show_message("\n".join(lines))
             else:
                 self._show_message(f"[red]Error: {response.text}[/red]")
@@ -518,6 +551,69 @@ class ResearchKBApp(App):
                     f"[red]Resource {resource_id} not found.[/red]\n"
                     "Use 'list' to see available resources."
                 )
+            else:
+                self._show_message(f"[red]Error: {response.text}[/red]")
+        except Exception as e:
+            logger.exception("An error occurred")
+            self._show_message(f"[red]Error: {e}[/red]")
+    # ---- Continue Chat ----
+    
+    def _continue_chat(self, chat_id_str: str) -> None:
+        if not chat_id_str:
+            self._show_message(
+                "[red]Usage: continue <chat_id>[/red]\n"
+                "Use 'chats' to see existing chats."
+            )
+            return
+
+        try:
+            chat_id = int(chat_id_str)
+        except ValueError:
+            self._show_message("[red]Invalid chat ID. Must be a number.[/red]")
+            return
+
+        # Check if LLM is configured
+        try:
+            response = httpx.get(f"{BASE_URL}/llm-configs/", timeout=10.0)
+            if response.status_code == 200:
+                configs = response.json()
+                has_default = any(c["is_default"] for c in configs)
+                if not has_default:
+                    self._show_message(
+                        "[red]No default LLM configured![/red]\n\n"
+                        "You must configure an LLM before chatting.\n"
+                        "Use 'llm-configs' to configure one."
+                    )
+                    return
+        except Exception as e:
+            logger.exception("Error checking LLM config before chat")
+            self._show_message(f"[red]Error checking LLM config: {e}[/red]")
+            return
+
+        # Find chat details to get resource_id and resource_url
+        try:
+            response = httpx.get(f"{BASE_URL}/chat/", timeout=10.0)
+            if response.status_code == 200:
+                chats = response.json()
+                chat = next((c for c in chats if c["id"] == chat_id), None)
+                if chat:
+                    self.query_one("#command-input", Input).display = False
+                    container = self.query_one("#main-container", Container)
+                    container.remove_children()
+                    chat_screen = ResourceChatScreen(
+                        resource_id=chat["resource_id"],
+                        resource_url=chat["resource_url"],
+                        chat_id=chat_id,
+                    )
+                    container.mount(chat_screen)
+                    # Focus the chat input
+                    chat_input = self.query_one("#chat-input", Input)
+                    chat_input.focus()
+                else:
+                    self._show_message(
+                        f"[red]Chat {chat_id} not found.[/red]\n"
+                        "Use 'chats' to see available chats."
+                    )
             else:
                 self._show_message(f"[red]Error: {response.text}[/red]")
         except Exception as e:

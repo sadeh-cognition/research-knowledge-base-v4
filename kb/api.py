@@ -342,9 +342,7 @@ _chat_instances: dict[int, object] = {}
 
 @chat_router.post("/", response=ChatMessageOut)
 def send_chat_message(request, payload: ChatMessageIn) -> dict:
-    """Send a message to chat with a resource."""
-    resource = get_object_or_404(Resource, id=payload.resource_id)
-
+    """Send a message to chat with a resource or continue a chat."""
     # Get LLM config
     if payload.llm_config_id:
         llm_config = get_object_or_404(LLMConfig, id=payload.llm_config_id)
@@ -357,18 +355,30 @@ def send_chat_message(request, payload: ChatMessageIn) -> dict:
                 status=400,
             )
 
-    # Get or create chat instance
-    chat_instance = _chat_instances.get(payload.resource_id)
+    if payload.chat_id:
+        # Continue existing chat
+        ai_response, chat_inst = chat_service.continue_chat(
+            chat_id=payload.chat_id,
+            user_message=payload.message,
+            llm_config=llm_config,
+        )
+    elif payload.resource_id:
+        # Start new chat with resource
+        resource = get_object_or_404(Resource, id=payload.resource_id)
+        ai_response, chat_inst = chat_service.chat_with_resource(
+            resource=resource,
+            user_message=payload.message,
+            llm_config=llm_config,
+        )
+    else:
+        return api.create_response(
+            request,
+            {"error": "Either resource_id or chat_id must be provided."},
+            status=400,
+        )
 
-    ai_response, chat_inst = chat_service.chat_with_resource(
-        resource=resource,
-        user_message=payload.message,
-        llm_config=llm_config,
-        chat_instance=chat_instance,
-    )
-
-    # Cache the chat instance
-    _chat_instances[payload.resource_id] = chat_inst
+    # Cache the chat instance by chat_id
+    _chat_instances[chat_inst.chat_db_model.id] = chat_inst
 
     return {
         "chat_id": chat_inst.chat_db_model.id,
