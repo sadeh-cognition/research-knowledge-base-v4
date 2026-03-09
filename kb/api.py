@@ -2,6 +2,8 @@ from django.shortcuts import get_object_or_404
 from loguru import logger
 from ninja import NinjaAPI, Router
 
+from events.models import EntityTypes, EventDescriptions
+from events.services import fire_event
 from kb.models import (
     Chunk,
     ChunkConfig,
@@ -98,6 +100,13 @@ def create_resource(request, payload: ResourceIn) -> Resource:
 
         # Embed and persist to ChromaDB
         chromadb_service.add_chunks(resource.id, chunk_texts)
+
+    # Fire event for text extraction cleanup
+    fire_event(
+        entity=EntityTypes.RESOURCE,
+        entity_id=str(resource.id),
+        description=EventDescriptions.TEXT_EXTRACTED,
+    )
 
     return resource
 

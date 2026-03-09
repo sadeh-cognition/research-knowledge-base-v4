@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'ninja',
     'django_llm_chat',
     'kb',
+    'events',
 ]
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
