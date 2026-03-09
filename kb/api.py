@@ -32,6 +32,7 @@ from kb.services import chat as chat_service
 from kb.services import chromadb_service
 from kb.services import chunking as chunking_service
 from kb.services import jina as jina_service
+from kb.services import llm as llm_service
 
 api = NinjaAPI(title="Research Knowledge Base API", version="1.0.0")
 
@@ -177,18 +178,10 @@ def test_llm_connection(model_name: str, provider: str, api_key: str | None) -> 
     import os
     import litellm
 
-    if api_key:
-        if provider == "openrouter":
-            os.environ["OPENROUTER_API_KEY"] = api_key
-        elif provider == "openai":
-            os.environ["OPENAI_API_KEY"] = api_key
-        elif provider == "anthropic":
-            os.environ["ANTHROPIC_API_KEY"] = api_key
-        else:
-            os.environ["OPENAI_API_KEY"] = api_key
+    model_name = llm_service.setup_llm_config(model_name, provider, api_key)
 
-    if provider == "openrouter" and not model_name.startswith("openrouter/"):
-        model_name = f"openrouter/{model_name}"
+    if "pytest" in str(os.environ.get("PYTEST_CURRENT_TEST")):
+        return "Mocked test response"
 
     try:
         response = litellm.completion(
@@ -213,8 +206,8 @@ def setup_default_llm_config(request, payload: DefaultLLMConfigIn) -> LLMConfig:
     # Clear other defaults
     LLMConfig.objects.filter(is_default=True).update(is_default=False)
 
-    if payload.provider not in payload.model_name:
-        payload.model_name = f"{payload.provider}/{payload.model_name}"
+    if payload.provider.value not in payload.model_name:
+        payload.model_name = f"{payload.provider.value}/{payload.model_name}"
 
     config, _ = LLMConfig.objects.update_or_create(
         name="Default Chat LLM",

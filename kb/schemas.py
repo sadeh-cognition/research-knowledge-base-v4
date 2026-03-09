@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Any
 
 from ninja import Schema
+from kb.services.llm import LLMProvider
 
 
 # --- Secret Schemas ---
@@ -77,14 +78,14 @@ class ChunkOut(Schema):
 
 class DefaultLLMConfigIn(Schema):
     model_name: str
-    provider: str
+    provider: LLMProvider
     api_key: str | None = None
 
 
 class LLMConfigIn(Schema):
     name: str
     model_name: str
-    provider: str
+    provider: LLMProvider
     is_default: bool = False
     secret_id: int | None = None
 

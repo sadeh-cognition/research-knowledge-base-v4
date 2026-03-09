@@ -517,9 +517,9 @@ class ResearchKBApp(App):
             Container(
                 Label(configs_info),
                 Label("\n[bold]Setup Default LLM[/bold]\n[italic]This LLM will be used for all chats by default.\nYou can later use different models for different purposes.[/italic]"),
-                Label("Provider (e.g. openai, ollama, openrouter):"),
+                Label("Provider (e.g. openai, ollama, groq, openrouter):"),
                 Input(placeholder="openai", id="llm-provider"),
-                Label("Model name (e.g. ollama_chat/qwen3:4b, lm_studio/<model_name>, openrouter/<model_name>, openai/gpt-4o):\nFor more info see: https://docs.litellm.ai/docs/#basic-usage"),
+                Label("Model name (e.g. groq/llama-3.1-8b-instant, ollama_chat/qwen3:4b, lm_studio/<model_name>, openai/gpt-4o):\nFor more info see: https://docs.litellm.ai/docs/#basic-usage"),
                 Input(placeholder="ollama_chat/qwen3:4b", id="llm-model"),
                 Label("API Key (optional):"),
                 Input(placeholder="sk-...", id="llm-api-key", password=True),

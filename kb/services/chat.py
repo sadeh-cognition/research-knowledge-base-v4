@@ -4,6 +4,7 @@ from django_llm_chat.chat import Chat
 from django_llm_chat.models import Message
 
 from kb.models import LLMConfig, Resource
+from kb.services import llm as llm_service
 
 User = get_user_model()
 
@@ -57,22 +58,13 @@ def chat_with_resource(
     # Determine the model name
     model_name = llm_config.model_name
 
-    # Set API key as environment variable if the config has a secret
-    if llm_config.secret:
-        import os
-        key = llm_config.secret.value
-        if llm_config.provider == "openrouter":
-            os.environ["OPENROUTER_API_KEY"] = key
-        elif llm_config.provider == "openai":
-            os.environ["OPENAI_API_KEY"] = key
-        elif llm_config.provider == "anthropic":
-            os.environ["ANTHROPIC_API_KEY"] = key
-        else:
-            os.environ["OPENAI_API_KEY"] = key
-
-    # Add openrouter prefix if needed
-    if llm_config.provider == "openrouter" and not model_name.startswith("openrouter/"):
-        model_name = f"openrouter/{model_name}"
+    # Set up LLM config and get (potentially) updated model name
+    api_key = llm_config.secret.value if llm_config.secret else None
+    model_name = llm_service.setup_llm_config(
+        model_name=llm_config.model_name,
+        provider=llm_config.provider,
+        api_key=api_key,
+    )
 
     ai_msg: Message
     ai_msg, _, _ = chat_instance.send_user_msg_to_llm(
