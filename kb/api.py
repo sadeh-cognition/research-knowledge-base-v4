@@ -30,6 +30,7 @@ from kb.schemas import (
     TextExtractionConfigOut,
     DefaultLLMConfigIn,
     EmbeddingStatusOut,
+    SemanticSearchOut,
 )
 from kb.services import chat as chat_service
 from kb.services import chromadb_service
@@ -80,26 +81,6 @@ def create_resource(request, payload: ResourceIn) -> Resource:
         extracted_text=extracted_text,
     )
 
-    # Get default chunk config
-    chunk_config = ChunkConfig.objects.first()
-    if chunk_config:
-        # Chunk the extracted text
-        chunk_texts = chunking_service.chunk_text(extracted_text, chunk_config.details)
-
-        # Save chunks to DB
-        chunks_to_create = [
-            Chunk(
-                text=text,
-                order=i,
-                resource=resource,
-                chunk_config=chunk_config,
-            )
-            for i, text in enumerate(chunk_texts)
-        ]
-        Chunk.objects.bulk_create(chunks_to_create)
-
-        # Embed and persist to ChromaDB
-        chromadb_service.add_chunks(resource.id, chunk_texts)
 
     # Fire event for text extraction cleanup
     fire_event(
@@ -409,3 +390,37 @@ def list_chats(request) -> list[dict]:
 
 
 api.add_router("/chat", chat_router)
+
+# ---- Search Endpoints ----
+
+search_router = Router(tags=["search"])
+
+
+@search_router.get("/", response=list[SemanticSearchOut])
+def search_chunks(request, query: str, n_results: int = 5) -> list[dict]:
+    """Semantic search against chunks in ChromaDB."""
+    if not query.strip():
+        return []
+        
+    try:
+        results = chromadb_service.search(query, n_results=n_results)
+        # Format for output
+        formatted_results = []
+        for res in results:
+            formatted_results.append({
+                "document": res["document"],
+                "distance": res["distance"],
+                "resource_id": res["metadata"].get("resource_id", 0),
+                "chunk_order": res["metadata"].get("chunk_order", 0)
+            })
+        return formatted_results
+    except Exception as e:
+        logger.exception("Semantic search failed")
+        return api.create_response(
+            request,
+            {"error": f"Search failed: {e}"},
+            status=500
+        )
+
+
+api.add_router("/search", search_router)

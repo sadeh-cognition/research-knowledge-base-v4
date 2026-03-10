@@ -32,6 +32,7 @@ class ResourceOut(Schema):
     url: str
     resource_type: str
     extracted_text: str
+    summary: str
     date_created: datetime
 
 
@@ -140,3 +141,13 @@ class ChatListOut(Schema):
     resource_url: str
     last_message: str
     date_updated: datetime
+
+
+# --- Search Schemas ---
+
+
+class SemanticSearchOut(Schema):
+    document: str
+    distance: float
+    resource_id: int
+    chunk_order: int

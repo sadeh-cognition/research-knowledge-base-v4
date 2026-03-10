@@ -12,8 +12,13 @@ def command(interval: int, once: bool):
     logger.info("Starting event consumers...")
     
     if once:
-        count = process_all_events()
-        logger.info(f"Processed {count} events. Exiting.")
+        total = 0
+        while True:
+            count = process_all_events()
+            if count == 0:
+                break
+            total += count
+        logger.info(f"Processed {total} events. Exiting.")
         return
 
     try:

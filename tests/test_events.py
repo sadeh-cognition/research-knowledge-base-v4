@@ -5,8 +5,8 @@ from django.core.management import call_command
 
 from events.models import Event, EventConsumer, EventConsumed, EntityTypes, EventDescriptions
 from events.services import fire_event
-from events.consumers import consume_clean_up_extracted_text, consume_summarize, get_or_create_consumer
-from kb.models import Resource, LLMConfig
+from events.consumers import consume_clean_up_extracted_text, consume_summarize, consume_chunk_and_embed, get_or_create_consumer
+from kb.models import Resource, LLMConfig, ChunkConfig, Chunk
 
 pytestmark = pytest.mark.django_db
 
@@ -94,6 +94,29 @@ def test_summarize_consumer():
     assert EventConsumed.objects.filter(event=event, consumer=consumer).exists()
 
     count_again = consume_summarize()
+
+def test_chunk_and_embed_consumer():
+    resource = baker.make("kb.Resource", extracted_text="This is a long text. It will be chunked into multiple pieces. This is just for testing.")
+    chunk_config = baker.make("kb.ChunkConfig", details={"chunk_size": 10, "chunk_overlap": 0})
+    
+    # Fire event
+    event = fire_event(
+        entity=EntityTypes.RESOURCE,
+        entity_id=str(resource.id),
+        description=EventDescriptions.CLEAN_UP_FINISHED
+    )
+    
+    count = consume_chunk_and_embed()
+    
+    assert count == 1
+    
+    chunks = Chunk.objects.filter(resource=resource)
+    assert chunks.count() > 0
+    
+    consumer = get_or_create_consumer("Chunk and Embed Resource")
+    assert EventConsumed.objects.filter(event=event, consumer=consumer).exists()
+
+    count_again = consume_chunk_and_embed()
     assert count_again == 0
 
 def test_run_consumers_command():

@@ -113,6 +113,80 @@ class ResourceChatScreen(Container):
         messages_container.scroll_end()
 
 
+class ResourceDetailsScreen(Container):
+    """Screen for displaying resource details in a split layout."""
+
+    def __init__(self, resource: dict) -> None:
+        super().__init__()
+        self.resource = resource
+
+    def compose(self) -> ComposeResult:
+        res_id = self.resource.get("id", "Unknown")
+        url = self.resource.get("url", "Unknown")
+        
+        yield Label(f"[bold]Resource Details (ID: {res_id})[/bold] | {url}", classes="details-header")
+        yield Horizontal(
+            VerticalScroll(
+                Label("[bold]Extracted Text[/bold]\n\n" + self.resource.get("extracted_text", "No text available.")),
+                id="details-left",
+            ),
+            VerticalScroll(
+                Label("[bold]Summary[/bold]\n\n" + self.resource.get("summary", "No summary available.")),
+                id="details-right",
+            ),
+            id="details-container",
+        )
+
+
+class SemanticSearchScreen(Container):
+    """Screen for semantic search against chunks."""
+
+    def compose(self) -> ComposeResult:
+        from textual.widgets import DataTable
+        yield Label("[bold]Semantic Search[/bold]", classes="details-header")
+        yield Input(placeholder="Type to search...", id="semantic-search-input")
+        table = DataTable(id="semantic-search-results", cursor_type="row")
+        table.add_columns("Score", "Resource ID", "Chunk Order", "Text")
+        yield table
+
+    async def on_input_changed(self, event: Input.Changed) -> None:
+        """Handle character changes for live search."""
+        if event.input.id != "semantic-search-input":
+            return
+            
+        query = event.value.strip()
+        table = self.query_one("#semantic-search-results", getattr(self.app.__module__, 'DataTable', __import__('textual.widgets').widgets.DataTable))
+        table.clear()
+        
+        if not query:
+            return
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{BASE_URL}/search/",
+                    params={"query": query, "n_results": 10},
+                    timeout=30.0
+                )
+            if response.status_code == 200:
+                results = response.json()
+                for res in results:
+                    score_str = f"{res['distance']:.4f}"
+                    # Truncate text for display
+                    text = res['document'].replace('\n', ' ')
+                    if len(text) > 80:
+                        text = text[:77] + "..."
+                    table.add_row(
+                        score_str, 
+                        str(res['resource_id']), 
+                        str(res['chunk_order']), 
+                        text,
+                        key=f"res_{res['resource_id']}_chunk_{res['chunk_order']}"
+                    )
+        except Exception as e:
+            logger.exception("Search API error")
+
+
 class ResearchKBApp(App):
     """Research Knowledge Base TUI."""
 
@@ -185,6 +259,40 @@ class ResearchKBApp(App):
 
     .form-container Input {
         margin: 0 0 1 0;
+    }
+    
+    /* Resource Details Split Layout */
+    .details-header {
+        padding: 1;
+        background: $surface;
+        text-style: bold;
+    }
+    
+    #details-container {
+        height: 1fr;
+    }
+    
+    #details-left {
+        width: 1fr;
+        height: 1fr;
+        padding: 1;
+        border-right: solid $accent;
+    }
+    
+    #details-right {
+        width: 1fr;
+        height: 1fr;
+        padding: 1;
+    }
+    
+    /* Semantic Search Layout */
+    #semantic-search-input {
+        margin: 1;
+    }
+    
+    #semantic-search-results {
+        height: 1fr;
+        margin: 0 1 1 1;
     }
     """
 
@@ -282,14 +390,16 @@ class ResearchKBApp(App):
             Static(
                 "[bold]Welcome to Research Knowledge Base[/bold]\n\n"
                 "Commands:\n"
-                "  [bold]add[/bold]       - Add a new resource\n"
-                "  [bold]list[/bold]      - List all resources\n"
-                "  [bold]chats[/bold]            - List all chats\n"
-                "  [bold]chat <res_id>[/bold]    - Start a NEW chat with a resource\n"
-                "  [bold]continue <chat_id>[/bold] - Continue an existing chat\n"
-                "  [bold]llm-configs[/bold] - LLM Configs\n"
-                "  [bold]text-extraction-configs[/bold] - Text Extraction Configs\n"
-                "  [bold]help[/bold]      - Show this help\n",
+                "  [bold]add, a[/bold]                    - Add a new resource\n"
+                "  [bold]list, l[/bold]                   - List all resources\n"
+                "  [bold]details <res_id>, dr[/bold]      - Show details of a resource\n"
+                "  [bold]chats, cs[/bold]                 - List all chats\n"
+                "  [bold]chat <res_id>, c[/bold]          - Start a NEW chat with a resource\n"
+                "  [bold]continue <chat_id>, co[/bold]    - Continue an existing chat\n"
+                "  [bold]search, ss[/bold]                - Semantic search across chunks\n"
+                "  [bold]llm-configs, lc[/bold]             - LLM Configs\n"
+                "  [bold]text-extraction-configs, tec[/bold]  - Text Extraction Configs\n"
+                "  [bold]help, h[/bold]                   - Show this help\n",
                 id="welcome",
             ),
             id="main-container",
@@ -333,21 +443,25 @@ class ResearchKBApp(App):
         cmd = parts[0].lower()
         args = parts[1] if len(parts) > 1 else ""
 
-        if cmd == "help":
+        if cmd in ("help", "h"):
             self._show_welcome()
-        elif cmd == "add":
+        elif cmd in ("add", "a"):
             self._show_add_resource()
-        elif cmd == "list":
+        elif cmd in ("list", "l"):
             self._list_resources()
-        elif cmd == "chats":
+        elif cmd in ("details", "dr"):
+            self._show_resource_details(args)
+        elif cmd in ("chats", "cs"):
             self._list_chats()
-        elif cmd == "chat":
+        elif cmd in ("chat", "c"):
             self._start_chat(args)
-        elif cmd == "continue":
+        elif cmd in ("continue", "co"):
             self._continue_chat(args)
-        elif cmd == "llm-configs":
+        elif cmd in ("search", "ss"):
+            self._show_semantic_search()
+        elif cmd in ("llm-configs", "lc"):
             self._show_llm_configs()
-        elif cmd == "text-extraction-configs":
+        elif cmd in ("text-extraction-configs", "tec"):
             self._show_text_extraction_configs()
         else:
             self._show_message(f"Unknown command: {cmd}. Type 'help' for commands.")
@@ -366,14 +480,16 @@ class ResearchKBApp(App):
         self._show_message(
             "[bold]Welcome to Research Knowledge Base[/bold]\n\n"
             "Commands:\n"
-            "  [bold]add[/bold]       - Add a new resource\n"
-            "  [bold]list[/bold]      - List all resources\n"
-            "  [bold]chats[/bold]            - List all chats\n"
-            "  [bold]chat <res_id>[/bold]    - Start a NEW chat with a resource\n"
-            "  [bold]continue <chat_id>[/bold] - Continue an existing chat\n"
-            "  [bold]llm-configs[/bold] - LLM Configs\n"
-            "  [bold]text-extraction-configs[/bold] - Text Extraction Configs\n"
-            "  [bold]help[/bold]      - Show this help\n"
+            "  [bold]add, a[/bold]                    - Add a new resource\n"
+            "  [bold]list, l[/bold]                   - List all resources\n"
+            "  [bold]details <res_id>, dr[/bold]      - Show details of a resource\n"
+            "  [bold]chats, cs[/bold]                 - List all chats\n"
+            "  [bold]chat <res_id>, c[/bold]          - Start a NEW chat with a resource\n"
+            "  [bold]continue <chat_id>, co[/bold]    - Continue an existing chat\n"
+            "  [bold]search, ss[/bold]                - Semantic search across chunks\n"
+            "  [bold]llm-configs, lc[/bold]             - LLM Configs\n"
+            "  [bold]text-extraction-configs, tec[/bold]  - Text Extraction Configs\n"
+            "  [bold]help, h[/bold]                   - Show this help\n"
         )
         command_input = self.query_one("#command-input", Input)
         command_input.display = True
@@ -458,6 +574,45 @@ class ResearchKBApp(App):
                     )
                 lines.append("\nUse 'chat <id>' to chat with a resource.")
                 self._show_message("\n".join(lines))
+            else:
+                self._show_message(f"[red]Error: {response.text}[/red]")
+        except Exception as e:
+            logger.exception("An error occurred")
+            self._show_message(f"[red]Error: {e}[/red]")
+
+    # ---- Resource Details ----
+
+    def _show_resource_details(self, resource_id_str: str) -> None:
+        if not resource_id_str:
+            self._show_message(
+                "[red]Usage: details <resource_id> (or dr <resource_id>)[/red]\n"
+                "Use 'list' to see available resources."
+            )
+            return
+
+        try:
+            resource_id = int(resource_id_str)
+        except ValueError:
+            self._show_message("[red]Invalid resource ID. Must be a number.[/red]")
+            return
+
+        try:
+            response = httpx.get(f"{BASE_URL}/resources/{resource_id}/", timeout=10.0)
+            if response.status_code == 200:
+                self.query_one("#command-input", Input).display = False
+                resource = response.json()
+                container = self.query_one("#main-container", Container)
+                container.remove_children()
+                details_screen = ResourceDetailsScreen(resource)
+                container.mount(details_screen)
+                
+                # focus the container to allow scrolling immediately
+                self.call_after_refresh(lambda: container.focus())
+            elif response.status_code == 404:
+                self._show_message(
+                    f"[red]Resource {resource_id} not found.[/red]\n"
+                    "Use 'list' to see available resources."
+                )
             else:
                 self._show_message(f"[red]Error: {response.text}[/red]")
         except Exception as e:
@@ -619,6 +774,32 @@ class ResearchKBApp(App):
         except Exception as e:
             logger.exception("An error occurred")
             self._show_message(f"[red]Error: {e}[/red]")
+
+    # ---- Semantic Search ----
+
+    def _show_semantic_search(self) -> None:
+        self.query_one("#command-input", Input).display = False
+        container = self.query_one("#main-container", Container)
+        container.remove_children()
+        
+        # Check if LLM / Embedding is configured for search
+        try:
+            response = httpx.get(f"{BASE_URL}/embedding-configs/status/", timeout=10.0)
+            if response.status_code == 200:
+                data = response.json()
+                if not data["is_valid"]:
+                    self._show_message(f"[red]Cannot perform semantic search: {data['message']}[/red]")
+                    return
+        except Exception as e:
+            logger.exception("Error checking embedding config before search")
+            self._show_message(f"[red]Error checking embedding config: {e}[/red]")
+            return
+
+        search_screen = SemanticSearchScreen()
+        container.mount(search_screen)
+        
+        # Focus the search input field
+        self.call_after_refresh(lambda: self.query_one("#semantic-search-input", Input).focus())
 
     # ---- LLM Configs ----
 

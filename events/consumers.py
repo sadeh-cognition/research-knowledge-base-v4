@@ -21,6 +21,36 @@ from kb.services import chat as chat_service
 User = get_user_model()
 
 
+def _create_chat_safely():
+    """Create Chat instance safely, handling existing user conflicts."""
+    try:
+        with transaction.atomic():
+            return Chat.create()
+    except Exception as e:
+        if "UNIQUE constraint failed" in str(e) or "UNIQUE constraint failed" in str(
+            getattr(e, "__cause__", e)
+        ):
+            from django_llm_chat.models import Chat as ChatDBModel
+
+            try:
+                llm_user = User.objects.get(username="litellm")
+            except User.DoesNotExist:
+                llm_user, _ = User.objects.get_or_create(
+                    username="djllmchat-user", defaults={"password": "djllmchat-user"}
+                )
+
+            default_user, _ = User.objects.get_or_create(
+                username="djllmchat", defaults={"password": "djllmchat"}
+            )
+
+            with transaction.atomic():
+                db_model = ChatDBModel.objects.create()
+                return Chat(
+                    chat_db_model=db_model, llm_user=llm_user, default_user=default_user
+                )
+        raise
+
+
 def _get_or_create_consumer_user() -> "User":
     """Get or create the consumer user for automated LLM tasks."""
     user, _ = User.objects.get_or_create(
@@ -48,7 +78,7 @@ def _get_llm_config():
     # We load credentials using the existing llm service setup if needed,
     # or rely on environment variables (like OPENROUTER_API_KEY)
     llm_service.setup_llm_config(model_name, provider, api_key)
-    return f"{provider}/{model_name}"
+    return model_name
 
 
 def consume_clean_up_extracted_text() -> int:
@@ -59,9 +89,13 @@ def consume_clean_up_extracted_text() -> int:
     consumer = get_or_create_consumer("Clean up extracted text")
 
     # Find unprocessed events
-    unprocessed_events = Event.objects.filter(
-        entity=EntityTypes.RESOURCE, description=EventDescriptions.TEXT_EXTRACTED
-    ).exclude(eventconsumed__consumer=consumer)
+    unprocessed_events = (
+        Event.objects.filter(
+            entity=EntityTypes.RESOURCE, description=EventDescriptions.TEXT_EXTRACTED
+        )
+        .exclude(eventconsumed__consumer=consumer)
+        .order_by("id")
+    )
 
     count = 0
     for event in unprocessed_events:
@@ -83,16 +117,17 @@ def consume_clean_up_extracted_text() -> int:
                     cleaned_text = f"MOCKED CLEANED TEXT: {resource.extracted_text}"
                 else:
                     try:
-                        chat_instance = Chat.create()
-                        user = _get_or_create_consumer_user()
-                        chat_instance.create_system_message(system_prompt, user)
+                        with transaction.atomic():
+                            chat_instance = _create_chat_safely()
+                            user = _get_or_create_consumer_user()
+                            chat_instance.create_system_message(system_prompt, user)
 
-                        ai_msg, _, _ = chat_instance.send_user_msg_to_llm(
-                            model_name=model_name,
-                            text=resource.extracted_text,
-                            user=user,
-                        )
-                        cleaned_text = ai_msg.text or ""
+                            ai_msg, _, _ = chat_instance.send_user_msg_to_llm(
+                                model_name=model_name,
+                                text=resource.extracted_text,
+                                user=user,
+                            )
+                            cleaned_text = ai_msg.text or ""
                     except Exception as e:
                         logger.error(f"Error calling LLM for clean up: {e}")
                         cleaned_text = resource.extracted_text  # Fallback to original
@@ -132,9 +167,13 @@ def consume_summarize() -> int:
     """
     consumer = get_or_create_consumer("Summarize")
 
-    unprocessed_events = Event.objects.filter(
-        entity=EntityTypes.RESOURCE, description=EventDescriptions.CLEAN_UP_FINISHED
-    ).exclude(eventconsumed__consumer=consumer)
+    unprocessed_events = (
+        Event.objects.filter(
+            entity=EntityTypes.RESOURCE, description=EventDescriptions.CLEAN_UP_FINISHED
+        )
+        .exclude(eventconsumed__consumer=consumer)
+        .order_by("id")
+    )
 
     count = 0
     for event in unprocessed_events:
@@ -152,16 +191,17 @@ def consume_summarize() -> int:
                     summary_text = f"MOCKED SUMMARY: {resource.extracted_text}"
                 else:
                     try:
-                        chat_instance = Chat.create()
-                        user = _get_or_create_consumer_user()
-                        chat_instance.create_system_message(system_prompt, user)
+                        with transaction.atomic():
+                            chat_instance = _create_chat_safely()
+                            user = _get_or_create_consumer_user()
+                            chat_instance.create_system_message(system_prompt, user)
 
-                        ai_msg, _, _ = chat_instance.send_user_msg_to_llm(
-                            model_name=model_name,
-                            text=resource.extracted_text,
-                            user=user,
-                        )
-                        summary_text = ai_msg.text or ""
+                            ai_msg, _, _ = chat_instance.send_user_msg_to_llm(
+                                model_name=model_name,
+                                text=resource.extracted_text,
+                                user=user,
+                            )
+                            summary_text = ai_msg.text or ""
                     except Exception as e:
                         logger.error(f"Error calling LLM for summarize: {e}")
                         summary_text = "Error generating summary."
@@ -183,9 +223,69 @@ def consume_summarize() -> int:
     return count
 
 
+def consume_chunk_and_embed() -> int:
+    """
+    Consumer that processes "extracted text clean up finished" events.
+    It chunks the resource's extracted text and persists the embeddings in chromadb.
+    """
+    from kb.models import Chunk, ChunkConfig
+    from kb.services import chunking as chunking_service
+    from kb.services import chromadb_service
+
+    consumer = get_or_create_consumer("Chunk and Embed Resource")
+
+    unprocessed_events = (
+        Event.objects.filter(
+            entity=EntityTypes.RESOURCE, description=EventDescriptions.CLEAN_UP_FINISHED
+        )
+        .exclude(eventconsumed__consumer=consumer)
+        .order_by("id")
+    )
+
+    count = 0
+    for event in unprocessed_events:
+        with transaction.atomic():
+            try:
+                resource = get_object_or_404(Resource, id=event.entity_id)
+                # Get default chunk config
+                chunk_config = ChunkConfig.objects.first()
+                if chunk_config:
+                    # Chunk the extracted text
+                    chunk_texts = chunking_service.chunk_text(resource.extracted_text, chunk_config.details)
+
+                    # Save chunks to DB
+                    chunks_to_create = [
+                        Chunk(
+                            text=text,
+                            order=i,
+                            resource=resource,
+                            chunk_config=chunk_config,
+                        )
+                        for i, text in enumerate(chunk_texts)
+                    ]
+                    Chunk.objects.bulk_create(chunks_to_create)
+
+                    # Embed and persist to ChromaDB
+                    chromadb_service.add_chunks(resource.id, chunk_texts)
+
+                EventConsumed.objects.create(event=event, consumer=consumer)
+
+                count += 1
+                logger.info(
+                    f"Consumed 'clean up finished' event {event.id} for Resource {resource.id} (chunked and embedded)"
+                )
+            except Exception as e:
+                logger.exception(
+                    f"Failed to chunk and embed for event {event.id}: {e}"
+                )
+        break
+    return count
+
+
 def process_all_events() -> int:
     """Helper to process all consumers."""
     count = 0
     count += consume_clean_up_extracted_text()
     count += consume_summarize()
+    count += consume_chunk_and_embed()
     return count
