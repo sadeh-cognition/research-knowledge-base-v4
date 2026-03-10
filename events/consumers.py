@@ -283,20 +283,26 @@ def consume_chunk_and_embed() -> int:
                         resource.extracted_text, chunk_config.details
                     )
 
-                    # Save chunks to DB
-                    chunks_to_create = [
-                        Chunk(
-                            text=text,
-                            order=i,
-                            resource=resource,
-                            chunk_config=chunk_config,
-                        )
-                        for i, text in enumerate(chunk_texts)
-                    ]
-                    Chunk.objects.bulk_create(chunks_to_create)
+                    for i, text in enumerate(chunk_texts):
+                        try:
+                            with transaction.atomic():
+                                # Save chunk to DB
+                                Chunk.objects.create(
+                                    text=text,
+                                    order=i,
+                                    resource=resource,
+                                    chunk_config=chunk_config,
+                                )
 
-                    # Embed and persist to ChromaDB
-                    chromadb_service.add_chunks(resource.id, chunk_texts)
+                                # Embed and persist to ChromaDB
+                                chromadb_service.add_chunks(
+                                    resource.id, [text], start_index=i
+                                )
+                        except Exception as e:
+                            logger.error(
+                                f"Failed to process chunk {i} for resource {resource.id}: {e}"
+                            )
+                            # Continue to next chunk
 
                 EventConsumed.objects.create(event=event, consumer=consumer)
 

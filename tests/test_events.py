@@ -215,3 +215,47 @@ def test_extract_title_of_resource_consumer():
 
     count_again = consume_extract_title_of_resource()
     assert count_again == 0
+
+
+def test_chunk_and_embed_resilience(monkeypatch):
+    # Create enough text to ensure multiple chunks with a small chunk_size
+    resource = baker.make(
+        "kb.Resource",
+        extracted_text="Word " * 50,
+    )
+    # Mock chunk_text to return exactly 3 chunks for predictable testing
+    from kb.services import chunking as chunking_service
+
+    monkeypatch.setattr(
+        chunking_service,
+        "chunk_text",
+        lambda text, details: ["Chunk 0", "Chunk 1", "Chunk 2"],
+    )
+
+    # Fire event
+    fire_event(
+        entity=EntityTypes.RESOURCE,
+        entity_id=str(resource.id),
+        description=EventDescriptions.CLEAN_UP_FINISHED,
+    )
+
+    from kb.services import chromadb_service
+
+    original_add_chunks = chromadb_service.add_chunks
+
+    def mocked_add_chunks(resource_id, chunks, start_index=0):
+        if start_index == 1:  # Fail on the second chunk
+            raise Exception("Simulated ChromaDB failure")
+        return original_add_chunks(resource_id, chunks, start_index)
+
+    monkeypatch.setattr(chromadb_service, "add_chunks", mocked_add_chunks)
+
+    count = consume_chunk_and_embed()
+
+    assert count == 1
+    # Check that chunks 0 and 2 exist, but chunk 1 does not (due to failure and transaction rollback)
+    chunks = Chunk.objects.filter(resource=resource).order_by("order")
+    orders = list(chunks.values_list("order", flat=True))
+    assert 0 in orders
+    assert 1 not in orders
+    assert 2 in orders

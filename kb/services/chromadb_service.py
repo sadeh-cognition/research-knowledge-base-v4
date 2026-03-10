@@ -47,12 +47,13 @@ def _get_embeddings(texts: list[str]) -> list[list[float]]:
         raise NotImplementedError(f"Provider {config.model_provider} not implemented.")
 
 
-def add_chunks(resource_id: int, chunks: list[str]) -> None:
+def add_chunks(resource_id: int, chunks: list[str], start_index: int = 0) -> None:
     """Embed and store chunks in ChromaDB.
 
     Args:
         resource_id: ID of the resource the chunks belong to.
         chunks: List of chunk text strings.
+        start_index: The starting index for chunk IDs and order metadata.
     """
     if not chunks:
         return
@@ -60,9 +61,12 @@ def add_chunks(resource_id: int, chunks: list[str]) -> None:
     collection = get_collection()
     embeddings = _get_embeddings(chunks)
 
-    ids = [f"resource_{resource_id}_chunk_{i}" for i in range(len(chunks))]
+    ids = [
+        f"resource_{resource_id}_chunk_{start_index + i}" for i in range(len(chunks))
+    ]
     metadatas = [
-        {"resource_id": resource_id, "chunk_order": i} for i in range(len(chunks))
+        {"resource_id": resource_id, "chunk_order": start_index + i}
+        for i in range(len(chunks))
     ]
 
     collection.add(
