@@ -86,6 +86,7 @@ def consume_clean_up_extracted_text() -> int:
     Consumer that processes "text extracted from resource" events.
     It cleans up the extracted text using an LLM to remove non-human-readable parts.
     """
+    logger.info("Running consumer: Clean up extracted text")
     consumer = get_or_create_consumer("Clean up extracted text")
 
     # Find unprocessed events
@@ -99,9 +100,11 @@ def consume_clean_up_extracted_text() -> int:
 
     count = 0
     for event in unprocessed_events:
+        logger.info(f"Consumer 'Clean up extracted text' found event {event.id}. Starting processing...")
         with transaction.atomic():
             try:
                 resource = get_object_or_404(Resource, id=event.entity_id)
+                logger.info(f"Calling LLM to clean up extracted text for Resource {resource.id}...")
                 # Call LLM logic
                 model_name = _get_llm_config()
 
@@ -140,6 +143,7 @@ def consume_clean_up_extracted_text() -> int:
                 EventConsumed.objects.create(event=event, consumer=consumer)
 
                 # Fire new event
+                logger.info(f"Firing 'clean up finished' event for Resource {resource.id}...")
                 fire_event(
                     entity=EntityTypes.RESOURCE,
                     entity_id=event.entity_id,
@@ -157,6 +161,7 @@ def consume_clean_up_extracted_text() -> int:
 
         break
 
+    logger.info(f"Finished consumer 'Clean up extracted text', processed {count} events")
     return count
 
 
@@ -165,6 +170,7 @@ def consume_summarize() -> int:
     Consumer that processes "extracted text clean up finished" events.
     It creates a summary of the resource's extracted text.
     """
+    logger.info("Running consumer: Summarize")
     consumer = get_or_create_consumer("Summarize")
 
     unprocessed_events = (
@@ -177,9 +183,11 @@ def consume_summarize() -> int:
 
     count = 0
     for event in unprocessed_events:
+        logger.info(f"Consumer 'Summarize' found event {event.id}. Starting processing...")
         with transaction.atomic():
             try:
                 resource = get_object_or_404(Resource, id=event.entity_id)
+                logger.info(f"Calling LLM to summarize text for Resource {resource.id}...")
 
                 model_name = _get_llm_config()
 
@@ -220,6 +228,7 @@ def consume_summarize() -> int:
                     f"Failed to process summarize for event {event.id}: {e}"
                 )
         break
+    logger.info(f"Finished consumer 'Summarize', processed {count} events")
     return count
 
 
@@ -232,6 +241,7 @@ def consume_chunk_and_embed() -> int:
     from kb.services import chunking as chunking_service
     from kb.services import chromadb_service
 
+    logger.info("Running consumer: Chunk and Embed Resource")
     consumer = get_or_create_consumer("Chunk and Embed Resource")
 
     unprocessed_events = (
@@ -244,9 +254,11 @@ def consume_chunk_and_embed() -> int:
 
     count = 0
     for event in unprocessed_events:
+        logger.info(f"Consumer 'Chunk and Embed Resource' found event {event.id}. Starting processing...")
         with transaction.atomic():
             try:
                 resource = get_object_or_404(Resource, id=event.entity_id)
+                logger.info(f"Chunking and embedding text for Resource {resource.id}...")
                 # Get default chunk config
                 chunk_config = ChunkConfig.objects.first()
                 if chunk_config:
@@ -279,6 +291,7 @@ def consume_chunk_and_embed() -> int:
                     f"Failed to chunk and embed for event {event.id}: {e}"
                 )
         break
+    logger.info(f"Finished consumer 'Chunk and Embed Resource', processed {count} events")
     return count
 
 

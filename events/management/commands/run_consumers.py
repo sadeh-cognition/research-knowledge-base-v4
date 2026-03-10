@@ -26,6 +26,7 @@ def command(interval: int, once: bool):
             count = process_all_events()
             if count > 0:
                 logger.info(f"Processed {count} events in this cycle.")
+            logger.info(f"Sleeping for {interval} seconds...")
             time.sleep(interval)
     except KeyboardInterrupt:
         logger.info("Stopping event consumers...")
