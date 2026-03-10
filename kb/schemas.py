@@ -30,6 +30,7 @@ class ResourceIn(Schema):
 class ResourceOut(Schema):
     id: int
     url: str
+    title: str
     resource_type: str
     extracted_text: str
     summary: str
@@ -39,6 +40,7 @@ class ResourceOut(Schema):
 class ResourceListOut(Schema):
     id: int
     url: str
+    title: str
     resource_type: str
     date_created: datetime
 
@@ -60,7 +62,6 @@ class TextExtractionConfigOut(Schema):
     title: str
     details: dict[str, Any]
     date_created: datetime
-
 
 
 # --- Chunk Schemas ---
@@ -139,6 +140,7 @@ class ChatListOut(Schema):
     id: int
     resource_id: int
     resource_url: str
+    resource_title: str
     last_message: str
     date_updated: datetime
 

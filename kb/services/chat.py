@@ -124,18 +124,25 @@ def get_chat_list() -> list[dict]:
         if not chat_model:
             continue
 
-        last_msg = Message.objects.filter(chat_id=rc.chat_id).order_by("-date_created").first()
-        results.append({
-            "id": rc.chat_id,
-            "resource_id": rc.resource.id,
-            "resource_url": rc.resource.url,
-            "last_message": last_msg.text if last_msg else "",
-            "date_updated": chat_model.date_updated,
-        })
+        last_msg = (
+            Message.objects.filter(chat_id=rc.chat_id).order_by("-date_created").first()
+        )
+        results.append(
+            {
+                "id": rc.chat_id,
+                "resource_id": rc.resource.id,
+                "resource_url": rc.resource.url,
+                "resource_title": rc.resource.title,
+                "last_message": last_msg.text if last_msg else "",
+                "date_updated": chat_model.date_updated,
+            }
+        )
 
     # Sort by date_updated descending
     results.sort(key=lambda x: x["date_updated"], reverse=True)
     return results
+
+
 def continue_chat(
     chat_id: int,
     user_message: str,
@@ -153,7 +160,7 @@ def continue_chat(
     """
     user = _get_or_create_chat_user()
     chat_db_model = ChatModel.objects.get(id=chat_id)
-    
+
     # Reconstruct Chat instance from DB model
     # Chat.create() creates a new model, we want to wrap existing one.
     # Looking at Chat dataclass in django_llm_chat/chat.py:
@@ -162,19 +169,17 @@ def continue_chat(
     #     chat_db_model: ChatDBModel
     #     llm_user: object
     #     default_user: object
-    
-    # We need to get llm_user and default_user. 
+
+    # We need to get llm_user and default_user.
     # django_llm_chat/chat.py handles this in Chat.create().
     # We can probably use a similar logic or see if there's a better way.
-    
+
     llm_user, _ = User.objects.get_or_create(
-        username="litellm",
-        defaults={"password": "litellm"}
+        username="litellm", defaults={"password": "litellm"}
     )
 
     default_user, _ = User.objects.get_or_create(
-        username="djllmchat",
-        defaults={"password": "djllmchat"}
+        username="djllmchat", defaults={"password": "djllmchat"}
     )
 
     chat_instance = Chat(

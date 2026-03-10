@@ -131,9 +131,10 @@ class ResourceDetailsScreen(Container):
     def compose(self) -> ComposeResult:
         res_id = self.resource.get("id", "Unknown")
         url = self.resource.get("url", "Unknown")
+        title = self.resource.get("title", "No Title")
 
         yield Label(
-            f"[bold]Resource Details (ID: {res_id})[/bold] | {url}",
+            f"[bold]Resource Details (ID: {res_id})[/bold] | {title}\n{url}",
             classes="details-header",
         )
         yield Horizontal(
@@ -572,6 +573,7 @@ class ResearchKBApp(App):
                 self.notify(
                     f"Resource added!\n"
                     f"ID: {data['id']}\n"
+                    f"Title: {data.get('title', 'Extracting title...')}\n"
                     f"URL: {data['url']}\n"
                     f"Type: {data['resource_type']}\n"
                     f"Text length: {len(data.get('extracted_text', ''))}",
@@ -598,8 +600,9 @@ class ResearchKBApp(App):
 
                 lines = ["[bold]Resources:[/bold]\n"]
                 for r in resources:
+                    title = r.get("title") or "No Title"
                     lines.append(
-                        f"  [bold]{r['id']}[/bold] | {r['resource_type']} | {r['url']}"
+                        f"  [bold]{r['id']}[/bold] | {r['resource_type']} | {title} | {r['url']}"
                     )
                 lines.append("\nUse 'chat <id>' to chat with a resource.")
                 self._show_message("\n".join(lines))
@@ -668,8 +671,9 @@ class ResearchKBApp(App):
                     if len(last_msg) > 50:
                         last_msg = last_msg[:47] + "..."
 
+                    title = c.get("resource_title") or "No Title"
                     lines.append(
-                        f"  [bold]ID: {c['id']}[/bold] | Res ID: {c['resource_id']} | {c['resource_url']}\n"
+                        f"  [bold]ID: {c['id']}[/bold] | Res ID: {c['resource_id']} | {title} ({c['resource_url']})\n"
                         f"    [italic]{last_msg}[/italic]"
                     )
                 lines.append("\nUse 'continue <chat_id>' to resume a chat.")
