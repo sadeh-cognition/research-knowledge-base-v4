@@ -411,15 +411,42 @@ class ResearchKBApp(App):
 
     def on_mount(self) -> None:
         """Called when the app is mounted."""
+        command_input = self.query_one("#command-input", Input)
+        command_input.display = False
+        self._show_message("[bold]Running system checks...[/bold]\nConnecting to backend server...")
+        self.set_timer(0.1, self._run_startup_checks)
+
+    def _run_startup_checks(self) -> None:
+        """Run all startup checks."""
+        if not self._check_backend_server():
+            return
         self._check_default_llm()
         self._check_jina_api_key()
         self._check_embedding_model()
+        
+        try:
+            container = self.query_one("#main-container", Container)
+            if container.query("#welcome"):
+                welcome = container.query_one("#welcome", Static)
+                if "Running system checks" in str(welcome.render()):
+                    self._show_welcome()
+        except Exception:
+            pass
+
+    def _check_backend_server(self) -> bool:
+        """Check if backend server is running."""
+        try:
+            httpx.get(f"{BASE_URL}/", timeout=1.0)
+            return True
+        except httpx.RequestError:
+            self.exit(message="Error: Backend server is not running on localhost:8001.", return_code=1)
+            return False
 
     def _check_jina_api_key(self) -> None:
         """Check if JINA AI API key is configured."""
         try:
             # Get text extraction configs
-            response = httpx.get(f"{BASE_URL}/text-extraction-configs/", timeout=10.0)
+            response = httpx.get(f"{BASE_URL}/text-extraction-configs/", timeout=1.0)
             if response.status_code == 200:
                 configs = response.json()
                 jina_config = next(
@@ -429,7 +456,7 @@ class ResearchKBApp(App):
                     # Check if secret exists
                     secret_response = httpx.get(
                         f"{BASE_URL}/text-extraction-configs/{jina_config['id']}/secret/",
-                        timeout=10.0,
+                        timeout=1.0,
                     )
                     if secret_response.status_code == 404:
                         self.notify(
@@ -450,7 +477,7 @@ class ResearchKBApp(App):
     def _check_default_llm(self) -> None:
         """Check if a default LLM is configured."""
         try:
-            response = httpx.get(f"{BASE_URL}/llm-configs/", timeout=10.0)
+            response = httpx.get(f"{BASE_URL}/llm-configs/", timeout=1.0)
             if response.status_code == 200:
                 configs = response.json()
                 has_default = any(c["is_default"] for c in configs)
@@ -471,7 +498,7 @@ class ResearchKBApp(App):
     def _check_embedding_model(self) -> None:
         """Check if the embedding model is running and loaded."""
         try:
-            response = httpx.get(f"{BASE_URL}/embedding-configs/status/", timeout=10.0)
+            response = httpx.get(f"{BASE_URL}/embedding-configs/status/", timeout=1.0)
             if response.status_code == 200:
                 data = response.json()
                 if not data["is_valid"]:

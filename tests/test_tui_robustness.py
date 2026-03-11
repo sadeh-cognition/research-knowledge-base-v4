@@ -121,7 +121,7 @@ async def test_show_resource_details_not_found(mock_httpx):
             assert "Resource 999 not found" in content
 
 
-async def test_show_resource_details_invalid_id():
+async def test_show_resource_details_invalid_id(mock_httpx):
     app = ResearchKBApp()
     async with app.run_test() as pilot:
         app._show_resource_details("abc")

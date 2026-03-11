@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from django.contrib import admin
 
-from kb.models import Chunk, ChunkConfig, EmbeddingModelConfig, LLMConfig, Resource, Secret, TextExtractionConfig
+from kb.models import (
+    Chunk,
+    ChunkConfig,
+    EmbeddingModelConfig,
+    LLMConfig,
+    Resource,
+    Secret,
+    TextExtractionConfig,
+)
 
 
 @admin.register(Secret)
@@ -25,7 +33,7 @@ class ChunkConfigAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
 
 @admin.register(Chunk)
 class ChunkAdmin(admin.ModelAdmin):  # type: ignore[type-arg]
-    list_display = ("resource", "order", "date_created")
+    list_display = ("text", "resource", "order", "date_created")
     list_filter = ("resource",)
 
 

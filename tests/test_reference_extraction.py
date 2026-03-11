@@ -1,12 +1,9 @@
 import pytest
-from ninja.testing import TestClient
-from kb.api import api
+from tests.test_api import client
 from kb.models import Resource, Reference
 from events.models import Event, EntityTypes, EventDescriptions
 from events.consumers import consume_extract_references
 from kb.schemas import ResourceOut
-
-client = TestClient(api)
 
 @pytest.mark.django_db
 class TestReferenceExtraction:
