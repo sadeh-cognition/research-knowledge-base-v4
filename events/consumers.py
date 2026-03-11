@@ -51,10 +51,10 @@ def _create_chat_safely():
         raise
 
 
-def _get_or_create_consumer_user() -> "User":
+def _get_or_create_consumer_user(username: str) -> "User":
     """Get or create the consumer user for automated LLM tasks."""
     user, _ = User.objects.get_or_create(
-        username="rkb-consumer",
+        username=username,
         defaults={"password": "unused"},
     )
     return user
@@ -126,7 +126,7 @@ def consume_clean_up_extracted_text() -> int:
                     try:
                         with transaction.atomic():
                             chat_instance = _create_chat_safely()
-                            user = _get_or_create_consumer_user()
+                            user = _get_or_create_consumer_user("rkb-consumer-cleanup")
                             chat_instance.create_system_message(system_prompt, user)
 
                             ai_msg, _, _ = chat_instance.send_user_msg_to_llm(
@@ -213,7 +213,9 @@ def consume_summarize() -> int:
                     try:
                         with transaction.atomic():
                             chat_instance = _create_chat_safely()
-                            user = _get_or_create_consumer_user()
+                            user = _get_or_create_consumer_user(
+                                "rkb-consumer-summarize"
+                            )
                             chat_instance.create_system_message(system_prompt, user)
 
                             ai_msg, _, _ = chat_instance.send_user_msg_to_llm(
@@ -359,7 +361,9 @@ def consume_extract_title_of_resource() -> int:
                     try:
                         with transaction.atomic():
                             chat_instance = _create_chat_safely()
-                            user = _get_or_create_consumer_user()
+                            user = _get_or_create_consumer_user(
+                                "rkb-consumer-extract-title"
+                            )
                             chat_instance.create_system_message(system_prompt, user)
 
                             ai_msg, _, _ = chat_instance.send_user_msg_to_llm(
@@ -436,7 +440,9 @@ def consume_extract_references() -> int:
                     try:
                         with transaction.atomic():
                             chat_instance = _create_chat_safely()
-                            user = _get_or_create_consumer_user()
+                            user = _get_or_create_consumer_user(
+                                "rkb-consumer-extract-references"
+                            )
                             chat_instance.create_system_message(system_prompt, user)
 
                             ai_msg, _, _ = chat_instance.send_user_msg_to_llm(
