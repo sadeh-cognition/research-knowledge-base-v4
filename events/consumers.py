@@ -1,4 +1,6 @@
 import os
+import traceback
+from django.conf import settings
 from loguru import logger
 from django.shortcuts import get_object_or_404
 from django.db import transaction
@@ -12,6 +14,7 @@ from events.models import (
     EventConsumed,
     EntityTypes,
     EventDescriptions,
+    ConsumptionStatus,
 )
 from events.services import fire_event
 from kb.models import Resource, Reference
@@ -90,21 +93,29 @@ def consume_clean_up_extracted_text() -> int:
     consumer = get_or_create_consumer("Clean up extracted text")
 
     # Find unprocessed events
-    unprocessed_events = (
-        Event.objects.filter(
-            entity=EntityTypes.RESOURCE, description=EventDescriptions.TEXT_EXTRACTED
+    unprocessed_events = Event.objects.filter(
+        entity=EntityTypes.RESOURCE, description=EventDescriptions.TEXT_EXTRACTED
+    ).order_by("id")
+
+    if settings.EVENT_CONSUMER_RETRY_FAILED:
+        # Exclude those that are OK
+        unprocessed_events = unprocessed_events.exclude(
+            eventconsumed__consumer=consumer,
+            eventconsumed__status=ConsumptionStatus.OK,
         )
-        .exclude(eventconsumed__consumer=consumer)
-        .order_by("id")
-    )
+    else:
+        # Exclude those that have ANY consumption record (OK or ERROR)
+        unprocessed_events = unprocessed_events.exclude(
+            eventconsumed__consumer=consumer
+        )
 
     count = 0
     for event in unprocessed_events:
         logger.info(
             f"Consumer 'Clean up extracted text' found event {event.id}. Starting processing..."
         )
-        with transaction.atomic():
-            try:
+        try:
+            with transaction.atomic():
                 resource = get_object_or_404(Resource, id=event.entity_id)
                 logger.info(
                     f"Calling LLM to clean up extracted text for Resource {resource.id}..."
@@ -144,7 +155,14 @@ def consume_clean_up_extracted_text() -> int:
                 resource.save()
 
                 # Mark event as consumed
-                EventConsumed.objects.create(event=event, consumer=consumer)
+                EventConsumed.objects.update_or_create(
+                    event=event,
+                    consumer=consumer,
+                    defaults={
+                        "status": ConsumptionStatus.OK,
+                        "exception": None,
+                    },
+                )
 
                 # Fire new event
                 logger.info(
@@ -160,9 +178,17 @@ def consume_clean_up_extracted_text() -> int:
                 logger.info(
                     f"Consumed 'text extracted' event {event.id} for Resource {resource.id}"
                 )
-            except Exception as e:
-                logger.exception(
-                    f"Failed to process clean up for event {event.id}: {e}"
+        except Exception:
+            stacktrace = traceback.format_exc()
+            logger.exception(f"Failed to process clean up for event {event.id}")
+            with transaction.atomic():
+                EventConsumed.objects.update_or_create(
+                    event=event,
+                    consumer=consumer,
+                    defaults={
+                        "status": ConsumptionStatus.ERROR,
+                        "exception": stacktrace,
+                    },
                 )
 
         break
@@ -181,21 +207,27 @@ def consume_summarize() -> int:
     logger.info("Running consumer: Summarize")
     consumer = get_or_create_consumer("Summarize")
 
-    unprocessed_events = (
-        Event.objects.filter(
-            entity=EntityTypes.RESOURCE, description=EventDescriptions.CLEAN_UP_FINISHED
+    unprocessed_events = Event.objects.filter(
+        entity=EntityTypes.RESOURCE, description=EventDescriptions.CLEAN_UP_FINISHED
+    ).order_by("id")
+
+    if settings.EVENT_CONSUMER_RETRY_FAILED:
+        unprocessed_events = unprocessed_events.exclude(
+            eventconsumed__consumer=consumer,
+            eventconsumed__status=ConsumptionStatus.OK,
         )
-        .exclude(eventconsumed__consumer=consumer)
-        .order_by("id")
-    )
+    else:
+        unprocessed_events = unprocessed_events.exclude(
+            eventconsumed__consumer=consumer
+        )
 
     count = 0
     for event in unprocessed_events:
         logger.info(
             f"Consumer 'Summarize' found event {event.id}. Starting processing..."
         )
-        with transaction.atomic():
-            try:
+        try:
+            with transaction.atomic():
                 resource = get_object_or_404(Resource, id=event.entity_id)
                 logger.info(
                     f"Calling LLM to summarize text for Resource {resource.id}..."
@@ -231,15 +263,30 @@ def consume_summarize() -> int:
                 resource.summary = summary_text
                 resource.save()
 
-                EventConsumed.objects.create(event=event, consumer=consumer)
+                EventConsumed.objects.update_or_create(
+                    event=event,
+                    consumer=consumer,
+                    defaults={
+                        "status": ConsumptionStatus.OK,
+                        "exception": None,
+                    },
+                )
 
                 count += 1
                 logger.info(
                     f"Consumed 'clean up finished' event {event.id} for Resource {resource.id}"
                 )
-            except Exception as e:
-                logger.exception(
-                    f"Failed to process summarize for event {event.id}: {e}"
+        except Exception:
+            stacktrace = traceback.format_exc()
+            logger.exception(f"Failed to process summarize for event {event.id}")
+            with transaction.atomic():
+                EventConsumed.objects.update_or_create(
+                    event=event,
+                    consumer=consumer,
+                    defaults={
+                        "status": ConsumptionStatus.ERROR,
+                        "exception": stacktrace,
+                    },
                 )
         break
     logger.info(f"Finished consumer 'Summarize', processed {count} events")
@@ -258,21 +305,27 @@ def consume_chunk_and_embed() -> int:
     logger.info("Running consumer: Chunk and Embed Resource")
     consumer = get_or_create_consumer("Chunk and Embed Resource")
 
-    unprocessed_events = (
-        Event.objects.filter(
-            entity=EntityTypes.RESOURCE, description=EventDescriptions.CLEAN_UP_FINISHED
+    unprocessed_events = Event.objects.filter(
+        entity=EntityTypes.RESOURCE, description=EventDescriptions.CLEAN_UP_FINISHED
+    ).order_by("id")
+
+    if settings.EVENT_CONSUMER_RETRY_FAILED:
+        unprocessed_events = unprocessed_events.exclude(
+            eventconsumed__consumer=consumer,
+            eventconsumed__status=ConsumptionStatus.OK,
         )
-        .exclude(eventconsumed__consumer=consumer)
-        .order_by("id")
-    )
+    else:
+        unprocessed_events = unprocessed_events.exclude(
+            eventconsumed__consumer=consumer
+        )
 
     count = 0
     for event in unprocessed_events:
         logger.info(
             f"Consumer 'Chunk and Embed Resource' found event {event.id}. Starting processing..."
         )
-        with transaction.atomic():
-            try:
+        try:
+            with transaction.atomic():
                 resource = get_object_or_404(Resource, id=event.entity_id)
                 logger.info(
                     f"Chunking and embedding text for Resource {resource.id}..."
@@ -306,14 +359,31 @@ def consume_chunk_and_embed() -> int:
                             )
                             # Continue to next chunk
 
-                EventConsumed.objects.create(event=event, consumer=consumer)
+                EventConsumed.objects.update_or_create(
+                    event=event,
+                    consumer=consumer,
+                    defaults={
+                        "status": ConsumptionStatus.OK,
+                        "exception": None,
+                    },
+                )
 
                 count += 1
                 logger.info(
                     f"Consumed 'clean up finished' event {event.id} for Resource {resource.id} (chunked and embedded)"
                 )
-            except Exception as e:
-                logger.exception(f"Failed to chunk and embed for event {event.id}: {e}")
+        except Exception:
+            stacktrace = traceback.format_exc()
+            logger.exception(f"Failed to chunk and embed for event {event.id}")
+            with transaction.atomic():
+                EventConsumed.objects.update_or_create(
+                    event=event,
+                    consumer=consumer,
+                    defaults={
+                        "status": ConsumptionStatus.ERROR,
+                        "exception": stacktrace,
+                    },
+                )
         break
     logger.info(
         f"Finished consumer 'Chunk and Embed Resource', processed {count} events"
@@ -329,21 +399,27 @@ def consume_extract_title_of_resource() -> int:
     logger.info("Running consumer: Extract title of resource")
     consumer = get_or_create_consumer("Extract title of resource")
 
-    unprocessed_events = (
-        Event.objects.filter(
-            entity=EntityTypes.RESOURCE, description=EventDescriptions.CLEAN_UP_FINISHED
+    unprocessed_events = Event.objects.filter(
+        entity=EntityTypes.RESOURCE, description=EventDescriptions.CLEAN_UP_FINISHED
+    ).order_by("id")
+
+    if settings.EVENT_CONSUMER_RETRY_FAILED:
+        unprocessed_events = unprocessed_events.exclude(
+            eventconsumed__consumer=consumer,
+            eventconsumed__status=ConsumptionStatus.OK,
         )
-        .exclude(eventconsumed__consumer=consumer)
-        .order_by("id")
-    )
+    else:
+        unprocessed_events = unprocessed_events.exclude(
+            eventconsumed__consumer=consumer
+        )
 
     count = 0
     for event in unprocessed_events:
         logger.info(
             f"Consumer 'Extract title of resource' found event {event.id}. Starting processing..."
         )
-        with transaction.atomic():
-            try:
+        try:
+            with transaction.atomic():
                 resource = get_object_or_404(Resource, id=event.entity_id)
                 logger.info(
                     f"Calling LLM to extract title for Resource {resource.id}..."
@@ -379,15 +455,30 @@ def consume_extract_title_of_resource() -> int:
                 resource.title = title_text.strip()
                 resource.save()
 
-                EventConsumed.objects.create(event=event, consumer=consumer)
+                EventConsumed.objects.update_or_create(
+                    event=event,
+                    consumer=consumer,
+                    defaults={
+                        "status": ConsumptionStatus.OK,
+                        "exception": None,
+                    },
+                )
 
                 count += 1
                 logger.info(
                     f"Consumed 'clean up finished' event {event.id} for Resource {resource.id} (extracted title)"
                 )
-            except Exception as e:
-                logger.exception(
-                    f"Failed to process extract title for event {event.id}: {e}"
+        except Exception:
+            stacktrace = traceback.format_exc()
+            logger.exception(f"Failed to process extract title for event {event.id}")
+            with transaction.atomic():
+                EventConsumed.objects.update_or_create(
+                    event=event,
+                    consumer=consumer,
+                    defaults={
+                        "status": ConsumptionStatus.ERROR,
+                        "exception": stacktrace,
+                    },
                 )
         break
     logger.info(
@@ -404,21 +495,27 @@ def consume_extract_references() -> int:
     logger.info("Running consumer: Extract references")
     consumer = get_or_create_consumer("Extract references")
 
-    unprocessed_events = (
-        Event.objects.filter(
-            entity=EntityTypes.RESOURCE, description=EventDescriptions.CLEAN_UP_FINISHED
+    unprocessed_events = Event.objects.filter(
+        entity=EntityTypes.RESOURCE, description=EventDescriptions.CLEAN_UP_FINISHED
+    ).order_by("id")
+
+    if settings.EVENT_CONSUMER_RETRY_FAILED:
+        unprocessed_events = unprocessed_events.exclude(
+            eventconsumed__consumer=consumer,
+            eventconsumed__status=ConsumptionStatus.OK,
         )
-        .exclude(eventconsumed__consumer=consumer)
-        .order_by("id")
-    )
+    else:
+        unprocessed_events = unprocessed_events.exclude(
+            eventconsumed__consumer=consumer
+        )
 
     count = 0
     for event in unprocessed_events:
         logger.info(
             f"Consumer 'Extract references' found event {event.id}. Starting processing..."
         )
-        with transaction.atomic():
-            try:
+        try:
+            with transaction.atomic():
                 resource = get_object_or_404(Resource, id=event.entity_id)
                 logger.info(
                     f"Calling LLM to extract references for Resource {resource.id}..."
@@ -465,15 +562,32 @@ def consume_extract_references() -> int:
                 for ref_desc in references:
                     Reference.objects.create(resource=resource, description=ref_desc)
 
-                EventConsumed.objects.create(event=event, consumer=consumer)
+                EventConsumed.objects.update_or_create(
+                    event=event,
+                    consumer=consumer,
+                    defaults={
+                        "status": ConsumptionStatus.OK,
+                        "exception": None,
+                    },
+                )
 
                 count += 1
                 logger.info(
                     f"Consumed 'clean up finished' event {event.id} for Resource {resource.id} (extracted {len(references)} references)"
                 )
-            except Exception as e:
-                logger.exception(
-                    f"Failed to process extract references for event {event.id}: {e}"
+        except Exception:
+            stacktrace = traceback.format_exc()
+            logger.exception(
+                f"Failed to process extract references for event {event.id}"
+            )
+            with transaction.atomic():
+                EventConsumed.objects.update_or_create(
+                    event=event,
+                    consumer=consumer,
+                    defaults={
+                        "status": ConsumptionStatus.ERROR,
+                        "exception": stacktrace,
+                    },
                 )
         break
     logger.info(f"Finished consumer 'Extract references', processed {count} events")

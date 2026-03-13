@@ -55,6 +55,9 @@ CHROMADB_VIZ_EMBEDDING_FUNCTION = "kb.services.chromadb_service._get_embeddings"
 # LMStudio embedding endpoint
 LMSTUDIO_BASE_URL = "http://localhost:1234"
 
+# Event Consumer settings
+EVENT_CONSUMER_RETRY_FAILED = False
+
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",

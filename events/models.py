@@ -1,11 +1,17 @@
 from django.db import models
 
+
 class EntityTypes(models.TextChoices):
     RESOURCE = "resource", "Resource"
 
+
 class EventDescriptions(models.TextChoices):
     TEXT_EXTRACTED = "text extracted from resource", "Text Extracted From Resource"
-    CLEAN_UP_FINISHED = "extracted text clean up finished", "Extracted Text Clean Up Finished"
+    CLEAN_UP_FINISHED = (
+        "extracted text clean up finished",
+        "Extracted Text Clean Up Finished",
+    )
+
 
 class Event(models.Model):
     entity = models.CharField(max_length=50, choices=EntityTypes.choices)
@@ -31,14 +37,25 @@ class EventConsumer(models.Model):
         return self.name
 
 
+class ConsumptionStatus(models.TextChoices):
+    OK = "OK", "OK"
+    ERROR = "ERROR", "Error"
+
+
 class EventConsumed(models.Model):
     event = models.ForeignKey(Event, on_delete=models.CASCADE)
     consumer = models.ForeignKey(EventConsumer, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(
+        max_length=10,
+        choices=ConsumptionStatus.choices,
+        default=ConsumptionStatus.OK,
+    )
+    exception = models.TextField(null=True, blank=True)
 
     class Meta:
         unique_together = [("event", "consumer")]
         ordering = ["-created_at"]
 
     def __str__(self) -> str:
-        return f"Event {self.event_id} consumed by {self.consumer.name}"
+        return f"Event {self.event_id} consumed by {self.consumer.name} ({self.status})"
