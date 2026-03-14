@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+from pathlib import Path
+
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
@@ -14,6 +17,9 @@ from textual.widgets import (
 
 import httpx
 from loguru import logger
+
+# Import TUI logging configuration
+from kb.tui_logging_config import setup_textual_logging, setup_from_env
 
 BASE_URL = "http://localhost:8001/api"
 
@@ -462,12 +468,30 @@ class ResearchKBApp(App):
 
     def on_mount(self) -> None:
         """Called when the app is mounted."""
+        # Configure Textual logging to file
+        self._setup_textual_logging()
+
         command_input = self.query_one("#command-input", Input)
         command_input.display = False
         self._show_message(
             "[bold]Running system checks...[/bold]\nConnecting to backend server..."
         )
         self.set_timer(0.1, self._run_startup_checks)
+
+    def _setup_textual_logging(self) -> None:
+        """Configure Textual logging to write to a file."""
+        # Try environment-based configuration first
+        log_file = setup_from_env()
+
+        if log_file:
+            logger.info(f"Textual logging configured from environment to: {log_file}")
+        else:
+            # Use default configuration
+            log_file = setup_textual_logging()
+            from kb.tui_logging_config import setup_exception_logging
+
+            setup_exception_logging()
+            logger.info(f"Textual logging configured to: {log_file}")
 
     def _run_startup_checks(self) -> None:
         """Run all startup checks."""
@@ -723,29 +747,45 @@ class ResearchKBApp(App):
         self._show_message(f"[yellow]Adding resource from {url}...[/yellow]")
 
         try:
-            from kb.schemas import ResourceIn
+            from kb.schemas import ResourceIn, ResourceStreamUpdate
+            import json
 
             payload = ResourceIn(url=url, resource_type=resource_type)
-            response = httpx.post(
+            with httpx.stream(
+                "POST",
                 f"{BASE_URL}/resources/",
                 json=payload.dict(),
-                timeout=5.0,
-            )
-            if response.status_code == 200:
-                data = response.json()
-                self.notify(
-                    f"Resource added!\n"
-                    f"ID: {data['id']}\n"
-                    f"Title: {data.get('title', 'Extracting title...')}\n"
-                    f"URL: {data['url']}\n"
-                    f"Type: {data['resource_type']}\n"
-                    f"Text length: {len(data.get('extracted_text', ''))}",
-                    title="Success",
-                    severity="information",
-                )
-                self._show_welcome()
-            else:
-                self._show_message(f"[red]Error: {response.text}[/red]")
+                timeout=60.0,
+            ) as response:
+                if response.status_code == 200:
+                    for line in response.iter_lines():
+                        if not line:
+                            continue
+                        try:
+                            update_data = json.loads(line)
+                            update = ResourceStreamUpdate(**update_data)
+
+                            if update.type == "status":
+                                self._show_message(f"[yellow]{update.status}[/yellow]")
+                            elif update.type == "result" and update.resource:
+                                self.notify(
+                                    f"Resource added!\n"
+                                    f"ID: {update.resource.id}\n"
+                                    f"Title: {update.resource.title or 'Extracting title...'}\n"
+                                    f"URL: {update.resource.url}\n"
+                                    f"Type: {update.resource.resource_type}\n"
+                                    f"Text length: {len(update.resource.extracted_text or '')}",
+                                    title="Success",
+                                    severity="information",
+                                )
+                                self._show_welcome()
+                        except Exception as parse_e:
+                            logger.error(
+                                f"Failed to parse stream line: {line} - {parse_e}"
+                            )
+                else:
+                    error_text = response.read().decode()
+                    self._show_message(f"[red]Error: {error_text}[/red]")
         except Exception as e:
             logger.exception("An error occurred")
             self._show_message(f"[red]Error: {e}[/red]")
