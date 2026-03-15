@@ -2,6 +2,7 @@ import pytest
 from kb.models import EmbeddingModelConfig
 from kb.services.chromadb_service import _get_embeddings
 
+
 @pytest.mark.django_db
 def test_embedding_config_exists():
     """Verify that the default embedding config was seeded."""
@@ -11,9 +12,20 @@ def test_embedding_config_exists():
     assert config.model_provider == "LMStudio"
     assert config.is_active is True
 
+
 @pytest.mark.django_db
-def test_get_embeddings_no_config():
-    """Verify that _get_embeddings raises ValueError if no active config exists."""
-    EmbeddingModelConfig.objects.all().delete()
-    with pytest.raises(ValueError, match="No active EmbeddingModelConfig found."):
-        _get_embeddings(["test"])
+def test_get_embeddings_integration(mocker):
+    """Verify that _get_embeddings calls generate_embeddings from embed_gen."""
+    mock_gen = mocker.patch(
+        "kb.services.chromadb_service.generate_embeddings", return_value=[[0.1, 0.2]]
+    )
+
+    embeddings = _get_embeddings(["test"])
+
+    assert embeddings == [[0.1, 0.2]]
+    mock_gen.assert_called_once()
+    args, kwargs = mock_gen.call_args
+    assert kwargs["texts"] == ["test"]
+    assert "model_name" in kwargs
+    assert "provider" in kwargs
+    assert "base_url" in kwargs
