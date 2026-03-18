@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Event Flow Visualization</title>
+    <!-- Modern Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --surface-color: rgba(30, 41, 59, 0.7);
+            --surface-border: rgba(255, 255, 255, 0.1);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --accent: #3b82f6;
+            --accent-hover: #60a5fa;
+            --error: #ef4444;
+            --success: #10b981;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(circle at 15% 50%, rgba(59, 130, 246, 0.15), transparent 25%),
+                radial-gradient(circle at 85% 30%, rgba(16, 185, 129, 0.15), transparent 25%);
+            color: var(--text-main);
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            padding: 1.5rem 2rem;
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--surface-border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            font-weight: 600;
+            letter-spacing: -0.025em;
+            background: linear-gradient(to right, #60a5fa, #34d399);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .refresh-btn {
+            background: var(--surface-color);
+            border: 1px solid var(--surface-border);
+            color: var(--text-main);
+            padding: 0.5rem 1rem;
+            border-radius: 0.5rem;
+            font-family: inherit;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            backdrop-filter: blur(8px);
+        }
+
+        .refresh-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.2);
+            transform: translateY(-1px);
+        }
+
+        .refresh-btn:active {
+            transform: translateY(0);
+        }
+
+        main {
+            flex: 1;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            /* Container for the graph */
+        }
+
+        .glass-container {
+            width: 100%;
+            max-width: 1200px;
+            background: var(--surface-color);
+            border: 1px solid var(--surface-border);
+            border-radius: 1rem;
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            padding: 2rem;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            min-height: 400px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow-x: auto;
+        }
+
+        .loading {
+            color: var(--text-muted);
+            font-size: 1.125rem;
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .5; }
+        }
+
+        .mermaid {
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.5s ease-in;
+        }
+        
+        .mermaid.visible {
+            opacity: 1;
+        }
+    </style>
+    <!-- Mermaid.js -->
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        
+        mermaid.initialize({
+            startOnLoad: false,
+            theme: 'dark',
+            fontFamily: 'Inter, sans-serif',
+            flowchart: {
+                htmlLabels: true,
+                curve: 'basis'
+            }
+        });
+
+        async function fetchAndRender() {
+            const container = document.getElementById('graph-container');
+            const mermaidDiv = document.getElementById('mermaid-diagram');
+            
+            try {
+                // Assuming the API is accessible here
+                const response = await fetch('/api/events/flow/');
+                if (!response.ok) throw new Error('Network response was not ok');
+                
+                const data = await response.json();
+                
+                if (data.events.length === 0) {
+                    container.innerHTML = '<div class="loading">No events found.</div>';
+                    return;
+                }
+
+                // Generate Mermaid Graph Definition
+                let graphDef = 'graph TD\n';
+                
+                // Styles
+                graphDef += 'classDef event fill:#1e40af,stroke:#3b82f6,stroke-width:2px,color:#fff,rx:20,ry:20;\n';
+                graphDef += 'classDef consumer fill:#065f46,stroke:#10b981,stroke-width:2px,color:#fff,rx:8,ry:8;\n';
+                graphDef += 'classDef error fill:#7f1d1d,stroke:#ef4444,stroke-width:2px,color:#fff,rx:8,ry:8;\n';
+                
+                // Add Consumers
+                data.consumers.forEach(c => {
+                    // Safe string for Mermaid ID
+                    const safeId = `C_${c.id}`;
+                    graphDef += `${safeId}["📺 Consumer<br/><b>${c.name}</b>"]:::consumer\n`;
+                });
+
+                // Add Events
+                data.events.forEach(e => {
+                    const safeId = `E_${e.id}`;
+                    let entityDisp = `<i>${e.entity}</i><br/><small>ID: ${e.entity_id}</small>`;
+                    if (e.entity_name) {
+                        // escape quotes to prevent Mermaid issues
+                        let safeName = e.entity_name.replace(/"/g, '&quot;').substring(0, 30);
+                        if (e.entity_name.length > 30) safeName += '...';
+                        entityDisp += `<br/><small><b>${safeName}</b></small>`;
+                    }
+                    graphDef += `${safeId}["⚡ Event ${e.id}<br/>${entityDisp}<br/><b>${e.description}</b>"]:::event\n`;
+                });
+
+                // Add Edges for consumptions
+                data.event_consumed.forEach(ec => {
+                    const fromId = `E_${ec.event_id}`;
+                    const toId = `C_${ec.consumer.id}`;
+                    
+                    const isError = ec.status === 'ERROR';
+                    const edgeLabel = isError ? '❌ Error' : '✅ OK';
+                    const edgeStyle = isError ? 'stroke:#ef4444,stroke-width:2px,color:#ef4444' : 'stroke:#94a3b8,stroke-width:1px,color:#94a3b8';
+                    
+                    graphDef += `${fromId} -->|"${edgeLabel}"| ${toId}\n`;
+                    // If error, style the consumer node differently to highlight it failed for this event
+                    if (isError) {
+                       graphDef += `class ${toId} error\n`; 
+                    }
+                });
+
+                // If a consumer produced an event, we technically don't have a direct database link 
+                // between the 'EventConsumed' and the new 'Event'. They share the same entity_id though.
+                // We can construct implicit edges based on Entity + Entity ID and chronological order.
+                
+                // Group events by Entity ID to find chronological flow
+                const eventsByEntity = {};
+                data.events.forEach(e => {
+                    const key = `${e.entity}_${e.entity_id}`;
+                    if (!eventsByEntity[key]) eventsByEntity[key] = [];
+                    eventsByEntity[key].push(e);
+                });
+                
+                Object.values(eventsByEntity).forEach(entityEvents => {
+                    // Sort by id asc (assuming id grows with time)
+                    entityEvents.sort((a,b) => a.id - b.id);
+                    
+                    for (let i = 0; i < entityEvents.length - 1; i++) {
+                        const currentEvt = entityEvents[i];
+                        const nextEvt = entityEvents[i+1];
+                        
+                        // Find if there is a consumer that consumed currentEvt
+                        const consumption = data.event_consumed.find(ec => ec.event_id === currentEvt.id && ec.status === 'OK');
+                        
+                        if (consumption) {
+                            // Draw edge from Consumer -> Next Event
+                            const fromId = `C_${consumption.consumer.id}`;
+                            const toId = `E_${nextEvt.id}`;
+                            graphDef += `${fromId} -.->|"produces"| ${toId}\n`;
+                        } else {
+                            // Direct event-to-event implicit flow (if no intermediate consumer was recorded)
+                            graphDef += `E_${currentEvt.id} -.->|"followed by"| E_${nextEvt.id}\n`;
+                        }
+                    }
+                });
+
+                // Render with Mermaid
+                mermaidDiv.innerHTML = graphDef;
+                // remove Mermaid data attribute to force re-render
+                mermaidDiv.removeAttribute('data-processed');
+                
+                const { svg } = await mermaid.render('mermaid-svg', graphDef);
+                
+                container.innerHTML = svg;
+                
+                // Add visible class for fade in
+                setTimeout(() => {
+                    container.classList.add('visible');
+                }, 50);
+
+            } catch (error) {
+                console.error("Error fetching event flow:", error);
+                container.innerHTML = `<div class="loading" style="color: var(--error)">Failed to load event flow data.</div>`;
+            }
+        }
+
+        // Expose function for the refresh button
+        window.manualRefresh = fetchAndRender;
+
+        document.addEventListener('DOMContentLoaded', fetchAndRender);
+        // Auto refresh every 10 seconds
+        setInterval(fetchAndRender, 10000);
+    </script>
+</head>
+<body>
+    <header>
+        <h1>Event Flow Visualizer</h1>
+        <button class="refresh-btn" onclick="window.manualRefresh()">Refresh Flow</button>
+    </header>
+    
+    <main>
+        <div class="glass-container">
+            <!-- The SVG will be injected here by Mermaid -->
+            <div id="graph-container" class="mermaid">
+                <div class="loading">Building visualization...</div>
+            </div>
+            <!-- Hidden div for mermaid definition parsing -->
+            <div id="mermaid-diagram" style="display:none"></div>
+        </div>
+    </main>
+</body>
+</html>
