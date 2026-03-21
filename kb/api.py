@@ -48,6 +48,12 @@ from events.api import events_router
 
 api = NinjaAPI(title="Research Knowledge Base API", version="1.0.0")
 
+
+@api.get("/")
+def api_root(request):
+    return {"message": "Research Knowledge Base API", "version": "1.0.0"}
+
+
 # ---- Secret Endpoints ----
 
 secret_router = Router(tags=["secrets"])

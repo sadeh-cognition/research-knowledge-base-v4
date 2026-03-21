@@ -24,13 +24,15 @@ dependencies = [
   "sentence-transformers>=5.2.3",
   "spacy>=3.8.11",
   "textual>=8.0.2",
+  "django-sqlite3-viz",
 ]
 
 [tool.uv.sources]
-django-llm-chat = { path = "../llm_chat_django", editable = true }
-django-chromadb-viz = { path = "../chromadb_viz_django", editable = true }
-django-lightrag = { path = "../lightrag_django" }
-embed-gen = { path = "../embed-gen" }
+django-llm-chat = { path = "../llm_chat", editable = true }
+django-chromadb-viz = { path = "../chroma_viz_django", editable = true }
+embed-gen = { path = "../embed_gen", editable = true }
+django-lightrag = { path = "../lightrag_django", editable = true }
+django-sqlite3-viz = { path = "../sqlite3_viz_django", editable = true }
 
 [dependency-groups]
 dev = [

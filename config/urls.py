@@ -9,4 +9,5 @@ urlpatterns = [
     path("chromadb/", include("django_chromadb_viz.urls")),
     path("llm-chat/", include("django_llm_chat.urls")),
     path("events/", include("events.urls")),
+    path("sqlite-viz/", include("sqlite_viz.urls")),
 ]

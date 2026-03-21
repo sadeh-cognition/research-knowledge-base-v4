@@ -42,7 +42,8 @@ INSTALLED_APPS = [
     "kb",
     "events",
     "django_chromadb_viz",
-    "djangorag.lightrag_app",
+    "django_lightrag",
+    "sqlite_viz",
 ]
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
