@@ -632,6 +632,7 @@ class ResearchKBApp(App):
             return
         self._check_default_llm()
         self._check_jina_api_key()
+        self._check_active_kg_config()
         self._check_embedding_model()
 
         try:
@@ -741,6 +742,35 @@ class ResearchKBApp(App):
                 timeout=5.0,
             )
 
+    def _check_active_kg_config(self) -> None:
+        """Check if at least one active knowledge graph config exists."""
+        try:
+            response = httpx.get(f"{BASE_URL}/kg-configs/", timeout=1.0)
+            if response.status_code == 200:
+                configs = response.json()
+                has_active = any(c.get("is_active") for c in configs)
+                if not has_active:
+                    self.notify(
+                        "No active knowledge graph config found. Use /kg-configs to configure one.",
+                        severity="warning",
+                        timeout=10.0,
+                    )
+            else:
+                self.notify(
+                    f"Could not check knowledge graph config: {response.text}",
+                    severity="error",
+                    timeout=5.0,
+                )
+        except Exception as e:
+            logger.exception(
+                "Could not connect to backend to check knowledge graph configuration"
+            )
+            self.notify(
+                f"Could not connect to backend to check knowledge graph configuration: {e}",
+                severity="error",
+                timeout=5.0,
+            )
+
     def compose(self) -> ComposeResult:
         yield Header()
         yield Container(
@@ -826,13 +856,20 @@ class ResearchKBApp(App):
 
     def _show_message(self, text: str) -> None:
         container = self.query_one("#main-container", Container)
-        try:
-            welcome = container.query_one("#welcome", Static)
+        welcome = (
+            container.query_one("#welcome", Static)
+            if container.query("#welcome")
+            else None
+        )
+        if welcome is not None:
             welcome.update(text)
-        except Exception:
-            logger.exception("Error updating welcome message")
+            return
+
+        try:
             container.remove_children()
             container.mount(Static(text, id="welcome"))
+        except Exception:
+            logger.exception("Error showing welcome message")
 
     def _show_welcome(self) -> None:
         """Show the welcome/help screen with commands from the registry."""

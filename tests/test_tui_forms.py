@@ -11,10 +11,23 @@ pytestmark = pytest.mark.asyncio
 def mock_httpx_responses():
     """Mock the initial HTTP calls for checking default LLMs during app startup."""
     with patch("httpx.get") as mock_get:
-        # Mock the get call in on_mount
-        mock_response = MagicMock(status_code=200)
-        mock_response.json.return_value = [{"is_default": True}]
-        mock_get.return_value = mock_response
+
+        def side_effect(*args, **kwargs):
+            url = args[0]
+            mock_response = MagicMock(status_code=200)
+            if "llm-configs" in url:
+                mock_response.json.return_value = [{"is_default": True}]
+            elif "embedding-configs" in url:
+                mock_response.json.return_value = {"is_valid": True, "message": "OK"}
+            elif "text-extraction-configs" in url:
+                mock_response.json.return_value = []
+            elif "kg-configs" in url:
+                mock_response.json.return_value = []
+            else:
+                mock_response.json.return_value = []
+            return mock_response
+
+        mock_get.side_effect = side_effect
         yield mock_get
 
 
@@ -159,6 +172,40 @@ async def test_hide_command_prompt_in_kg_configs_form(mock_httpx_responses):
         await pilot.wait_for_animation()
 
         assert command_input.display is True
+        assert app.query("#welcome")
+
+
+async def test_submit_kg_config_form_posts_payload(
+    mock_httpx_responses, mock_httpx_post
+):
+    app = ResearchKBApp()
+    async with app.run_test() as pilot:
+        with patch.object(app, "notify") as mock_notify:
+            app._show_kg_configs()
+            await pilot.pause()
+            await pilot.wait_for_animation()
+
+            app.query_one("#kg-name", Input).value = "Primary KG"
+            app.query_one("#kg-package-name", Input).value = "django_lightrag"
+            app.query_one("#kg-update-trigger", Input).value = "llm_intent"
+            app.query_one("#kg-active", Input).value = "true"
+            app.query_one("#kg-active", Input).focus()
+
+            await pilot.press("enter")
+            await pilot.pause()
+            await pilot.wait_for_animation()
+
+        mock_httpx_post.assert_called_once()
+        assert (
+            mock_httpx_post.call_args.args[0] == "http://localhost:8001/api/kg-configs/"
+        )
+        assert mock_httpx_post.call_args.kwargs["json"] == {
+            "name": "Primary KG",
+            "package_name": "django_lightrag",
+            "update_trigger": "llm_intent",
+            "is_active": True,
+        }
+        mock_notify.assert_called_once()
         assert app.query("#welcome")
 
 
