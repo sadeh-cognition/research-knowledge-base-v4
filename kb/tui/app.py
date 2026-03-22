@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 
+from dataclasses import dataclass
+from typing import Callable, Awaitable
+
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
@@ -11,7 +14,9 @@ from textual.widgets import (
     Label,
     Static,
     DataTable,
+    OptionList,
 )
+from textual.widget import Widget
 
 import httpx
 from loguru import logger
@@ -20,6 +25,111 @@ from loguru import logger
 from kb.tui_logging_config import setup_textual_logging, setup_from_env
 
 BASE_URL = "http://localhost:8001/api"
+
+
+@dataclass
+class Command:
+    """TUI command definition."""
+
+    name: str  # canonical slash command, e.g., "/help"
+    aliases: list[str]  # slash aliases, e.g., ["/h"]
+    usage: str  # usage string, e.g., "/help" or "/chat <res_id>"
+    description: str  # short description for help and autocomplete
+    takes_argument: bool  # whether the command expects an argument
+    handler: Callable[[ResearchKBApp, str], None | Awaitable[None]]  # handler to invoke
+
+
+# Command registry - centralized source of truth for all TUI commands
+# Note: kg-configs is intentionally omitted as it has no real handler yet
+COMMAND_REGISTRY: dict[str, Command] = {}
+
+
+def _register_command(cmd: Command) -> None:
+    """Register a command and its aliases in the global registry."""
+    COMMAND_REGISTRY[cmd.name] = cmd
+    for alias in cmd.aliases:
+        COMMAND_REGISTRY[alias] = cmd
+
+
+def _resolve_command(input_text: str) -> tuple[Command | None, str, str | None]:
+    """Resolve user input to a command.
+
+    Returns: (command_or_none, canonical_name, argument_or_none)
+    """
+    parts = input_text.strip().split(maxsplit=1)
+    if not parts:
+        return None, "", None
+
+    cmd_key = parts[0].lower()
+    args = parts[1] if len(parts) > 1 else ""
+
+    # Check if it's a bare command (no leading slash)
+    if not cmd_key.startswith("/"):
+        return None, cmd_key, args if args else None
+
+    cmd = COMMAND_REGISTRY.get(cmd_key)
+    if cmd:
+        return cmd, cmd.name, args if args else None
+
+    return None, cmd_key, args if args else None
+
+
+def _get_all_commands() -> list[Command]:
+    """Get all unique commands (by canonical name) from the registry."""
+    seen = set()
+    result = []
+    for cmd in COMMAND_REGISTRY.values():
+        if cmd.name not in seen:
+            seen.add(cmd.name)
+            result.append(cmd)
+    return sorted(result, key=lambda c: c.name)
+
+
+def _format_help_text() -> str:
+    """Generate help text from the command registry."""
+    lines = ["[bold]Welcome to Research Knowledge Base[/bold]\n", "Commands:"]
+
+    for cmd in _get_all_commands():
+        alias_str = f" ({', '.join(cmd.aliases)})" if cmd.aliases else ""
+        lines.append(f"  [bold]{cmd.name}[/bold]{alias_str}")
+        lines.append(f"      {cmd.description}")
+
+    lines.append("\n[italic]All commands must start with / (e.g., /help)[/italic]")
+    return "\n".join(lines)
+
+
+def _get_command_suggestions(partial: str) -> list[Command]:
+    """Get command suggestions matching the partial input.
+
+    partial: The partial command starting with /
+    """
+    if not partial.startswith("/"):
+        return []
+
+    partial_lower = partial.lower()
+    matches = []
+    seen = set()
+
+    for cmd in _get_all_commands():
+        # Match against canonical name
+        if cmd.name.startswith(partial_lower) and cmd.name not in seen:
+            seen.add(cmd.name)
+            matches.append(cmd)
+        else:
+            # Match against aliases
+            for alias in cmd.aliases:
+                if alias.startswith(partial_lower) and cmd.name not in seen:
+                    seen.add(cmd.name)
+                    matches.append(cmd)
+                    break
+
+    return matches
+
+
+def _format_suggestion(cmd: Command) -> str:
+    """Format a command for the suggestion list."""
+    alias_str = f" ({', '.join(cmd.aliases)})" if cmd.aliases else ""
+    return f"{cmd.name}{alias_str} - {cmd.description}"
 
 
 class ChatMessage(Static):
@@ -456,11 +566,38 @@ class ResearchKBApp(App):
     #search-context-view {
         width: 100%;
     }
+
+    #autocomplete-popup {
+        dock: bottom;
+        layer: overlay;
+        width: auto;
+        max-width: 60;
+        height: auto;
+        max-height: 10;
+        margin: 0 1;
+        padding: 0;
+        border: solid $accent;
+        background: $surface;
+        display: none;
+    }
+
+    #autocomplete-popup OptionList {
+        height: auto;
+        max-height: 8;
+        background: $surface;
+        border: none;
+    }
+
+    #autocomplete-popup OptionList:focus {
+        border: none;
+    }
     """
 
     BINDINGS = [
         Binding("ctrl+q", "quit", "Quit"),
-        Binding("escape", "escape", "Cancel/Back"),
+        Binding("escape", "action_escape", "Cancel/Back"),
+        Binding("up", "move_up", "Move Up", show=False),
+        Binding("down", "move_down", "Move Down", show=False),
     ]
 
     TITLE = "Research Knowledge Base"
@@ -539,7 +676,7 @@ class ResearchKBApp(App):
                     )
                     if secret_response.status_code == 404:
                         self.notify(
-                            "JINA AI API key not configured! Please use 'text-extraction-configs' to add it.",
+                            "JINA AI API key not configured! Please use /text-extraction-configs to add it.",
                             severity="warning",
                             timeout=10.0,
                         )
@@ -562,7 +699,7 @@ class ResearchKBApp(App):
                 has_default = any(c["is_default"] for c in configs)
                 if not has_default:
                     self.notify(
-                        "No default LLM configured! Please use the 'llm-configs' command to configure one.",
+                        "No default LLM configured! Please use the /llm-configs command to configure one.",
                         severity="warning",
                         timeout=10.0,
                     )
@@ -580,9 +717,16 @@ class ResearchKBApp(App):
             response = httpx.get(f"{BASE_URL}/embedding-configs/status/", timeout=1.0)
             if response.status_code == 200:
                 data = response.json()
-                if not data["is_valid"]:
+                if not isinstance(data, dict):
                     self.notify(
-                        f"Embedding Provider Issue: {data['message']}",
+                        "Embedding status check returned unexpected format.",
+                        severity="warning",
+                        timeout=10.0,
+                    )
+                    return
+                if not data.get("is_valid"):
+                    self.notify(
+                        f"Embedding Provider Issue: {data.get('message', 'Unknown error')}",
                         severity="warning",
                         timeout=10.0,
                     )
@@ -605,26 +749,25 @@ class ResearchKBApp(App):
         yield Container(
             Static(
                 "[bold]Welcome to Research Knowledge Base[/bold]\n\n"
-                "Commands:\n"
-                "  [bold]add, a[/bold]                    - Add a new resource\n"
-                "  [bold]list, l[/bold]                   - List all resources\n"
-                "  [bold]details <res_id>, dr[/bold]      - Show details of a resource\n"
-                "  [bold]chats, cs[/bold]                 - List all chats\n"
-                "  [bold]chat <res_id>, c[/bold]          - Start a NEW chat with a resource\n"
-                "  [bold]continue <chat_id>, co[/bold]    - Continue an existing chat\n"
-                "  [bold]search, ss[/bold]                - Semantic search across chunks\n"
-                "  [bold]llm-configs, lc[/bold]             - LLM Configs\n"
-                "  [bold]text-extraction-configs, tec[/bold]  - Text Extraction Configs\n"
-                "  [bold]help, h[/bold]                   - Show this help\n",
+                "Loading commands...",
                 id="welcome",
             ),
             id="main-container",
         )
-        yield Input(placeholder="Enter command...", id="command-input")
+        yield Input(placeholder="Enter command (start with /)...", id="command-input")
+        # Autocomplete popup (hidden by default)
+        yield Container(
+            OptionList(id="autocomplete-options"),
+            id="autocomplete-popup",
+        )
         yield Footer()
 
     def action_escape(self) -> None:
         """Handle the escape key to return to the main view."""
+        # First, check if autocomplete popup is open and close it
+        if self._close_autocomplete():
+            return
+
         container = self.query_one("#main-container", Container)
 
         # Check if we are currently in form, chat, etc.
@@ -652,40 +795,36 @@ class ResearchKBApp(App):
         elif input_id != "command-input":
             return
 
+        # Close autocomplete if open
+        self._close_autocomplete()
+
         command = event.value.strip()
         event.input.value = ""
 
         if not command:
             return
 
-        parts = command.split(maxsplit=1)
-        cmd = parts[0].lower()
-        args = parts[1] if len(parts) > 1 else ""
+        cmd, canonical, args = _resolve_command(command)
 
-        if cmd in ("help", "h"):
-            self._show_welcome()
-        elif cmd in ("add", "a"):
-            self._show_add_resource()
-        elif cmd in ("list", "l"):
-            self._list_resources()
-        elif cmd in ("details", "dr"):
-            self._show_resource_details(args)
-        elif cmd in ("chats", "cs"):
-            self._list_chats()
-        elif cmd in ("chat", "c"):
-            self._start_chat(args)
-        elif cmd in ("continue", "co"):
-            self._continue_chat(args)
-        elif cmd in ("search", "ss"):
-            self._show_semantic_search()
-        elif cmd in ("llm-configs", "lc"):
-            self._show_llm_configs()
-        elif cmd in ("kg-configs", "kgc"):
-            self._show_kg_configs()
-        elif cmd in ("text-extraction-configs", "tec"):
-            self._show_text_extraction_configs()
-        else:
-            self._show_message(f"Unknown command: {cmd}. Type 'help' for commands.")
+        if cmd is None:
+            # Check if it's a bare command (no leading slash)
+            if not command.startswith("/"):
+                self._show_message(
+                    f"[red]Unknown command: {canonical}[/red]\n\n"
+                    "Commands must start with a forward slash (e.g., /help).\n"
+                    "Type /help for a list of available commands."
+                )
+            else:
+                self._show_message(
+                    f"[red]Unknown command: {canonical}[/red]\n"
+                    "Type /help for a list of available commands."
+                )
+            return
+
+        # Execute the command handler
+        result = cmd.handler(self, args or "")
+        if result is not None:
+            await result
 
     def _show_message(self, text: str) -> None:
         container = self.query_one("#main-container", Container)
@@ -698,21 +837,8 @@ class ResearchKBApp(App):
             container.mount(Static(text, id="welcome"))
 
     def _show_welcome(self) -> None:
-        self._show_message(
-            "[bold]Welcome to Research Knowledge Base[/bold]\n\n"
-            "Commands:\n"
-            "  [bold]add, a[/bold]                    - Add a new resource\n"
-            "  [bold]list, l[/bold]                   - List all resources\n"
-            "  [bold]details <res_id>, dr[/bold]      - Show details of a resource\n"
-            "  [bold]chats, cs[/bold]                 - List all chats\n"
-            "  [bold]chat <res_id>, c[/bold]          - Start a NEW chat with a resource\n"
-            "  [bold]continue <chat_id>, co[/bold]    - Continue an existing chat\n"
-            "  [bold]search, ss[/bold]                - Semantic search across chunks\n"
-            "  [bold]llm-configs, lc[/bold]             - LLM Configs\n"
-            "  [bold]kg-configs, kgc[/bold]             - Knowledge Graph Configs\n"
-            "  [bold]text-extraction-configs, tec[/bold]  - Text Extraction Configs\n"
-            "  [bold]help, h[/bold]                   - Show this help\n"
-        )
+        """Show the welcome/help screen with commands from the registry."""
+        self._show_message(_format_help_text())
         command_input = self.query_one("#command-input", Input)
         command_input.display = True
         command_input.focus()
@@ -806,7 +932,7 @@ class ResearchKBApp(App):
             if response.status_code == 200:
                 resources = response.json()
                 if not resources:
-                    self._show_message("No resources found. Use 'add' to add one.")
+                    self._show_message("No resources found. Use /add to add one.")
                     return
 
                 lines = ["[bold]Resources:[/bold]\n"]
@@ -815,7 +941,7 @@ class ResearchKBApp(App):
                     lines.append(
                         f"  [bold]{r['id']}[/bold] | {r['resource_type']} | {title} | {r['url']}"
                     )
-                lines.append("\nUse 'chat <id>' to chat with a resource.")
+                lines.append("\nUse /chat <id> to chat with a resource.")
                 self._show_message("\n".join(lines))
             else:
                 self._show_message(f"[red]Error: {response.text}[/red]")
@@ -828,8 +954,8 @@ class ResearchKBApp(App):
     def _show_resource_details(self, resource_id_str: str) -> None:
         if not resource_id_str:
             self._show_message(
-                "[red]Usage: details <resource_id> (or dr <resource_id>)[/red]\n"
-                "Use 'list' to see available resources."
+                "[red]Usage: /details <resource_id> (or /dr <resource_id>)[/red]\n"
+                "Use /list to see available resources."
             )
             return
 
@@ -854,7 +980,7 @@ class ResearchKBApp(App):
             elif response.status_code == 404:
                 self._show_message(
                     f"[red]Resource {resource_id} not found.[/red]\n"
-                    "Use 'list' to see available resources."
+                    "Use /list to see available resources."
                 )
             else:
                 self._show_message(f"[red]Error: {response.text}[/red]")
@@ -871,7 +997,7 @@ class ResearchKBApp(App):
                 chats = response.json()
                 if not chats:
                     self._show_message(
-                        "No chats found. Use 'chat <resource_id>' to start one."
+                        "No chats found. Use /chat <resource_id> to start one."
                     )
                     return
 
@@ -887,8 +1013,8 @@ class ResearchKBApp(App):
                         f"  [bold]ID: {c['id']}[/bold] | Res ID: {c['resource_id']} | {title} ({c['resource_url']})\n"
                         f"    [italic]{last_msg}[/italic]"
                     )
-                lines.append("\nUse 'continue <chat_id>' to resume a chat.")
-                lines.append("Use 'chat <resource_id>' to start a new chat.")
+                lines.append("\nUse /continue <chat_id> to resume a chat.")
+                lines.append("Use /chat <resource_id> to start a new chat.")
                 self._show_message("\n".join(lines))
             else:
                 self._show_message(f"[red]Error: {response.text}[/red]")
@@ -901,8 +1027,8 @@ class ResearchKBApp(App):
     def _start_chat(self, resource_id_str: str) -> None:
         if not resource_id_str:
             self._show_message(
-                "[red]Usage: chat <resource_id>[/red]\n"
-                "Use 'list' to see available resources."
+                "[red]Usage: /chat <resource_id>[/red]\n"
+                "Use /list to see available resources."
             )
             return
 
@@ -916,7 +1042,7 @@ class ResearchKBApp(App):
                     self._show_message(
                         "[red]No default LLM configured![/red]\n\n"
                         "You must configure an LLM before chatting.\n"
-                        "Use 'llm-configs' to configure one."
+                        "Use /llm-configs to configure one."
                     )
                     return
         except Exception as e:
@@ -951,7 +1077,7 @@ class ResearchKBApp(App):
             elif response.status_code == 404:
                 self._show_message(
                     f"[red]Resource {resource_id} not found.[/red]\n"
-                    "Use 'list' to see available resources."
+                    "Use /list to see available resources."
                 )
             else:
                 self._show_message(f"[red]Error: {response.text}[/red]")
@@ -964,8 +1090,8 @@ class ResearchKBApp(App):
     def _continue_chat(self, chat_id_str: str) -> None:
         if not chat_id_str:
             self._show_message(
-                "[red]Usage: continue <chat_id>[/red]\n"
-                "Use 'chats' to see existing chats."
+                "[red]Usage: /continue <chat_id>[/red]\n"
+                "Use /chats to see existing chats."
             )
             return
 
@@ -985,7 +1111,7 @@ class ResearchKBApp(App):
                     self._show_message(
                         "[red]No default LLM configured![/red]\n\n"
                         "You must configure an LLM before chatting.\n"
-                        "Use 'llm-configs' to configure one."
+                        "Use /llm-configs to configure one."
                     )
                     return
         except Exception as e:
@@ -1017,7 +1143,7 @@ class ResearchKBApp(App):
                 else:
                     self._show_message(
                         f"[red]Chat {chat_id} not found.[/red]\n"
-                        "Use 'chats' to see available chats."
+                        "Use /chats to see available chats."
                     )
             else:
                 self._show_message(f"[red]Error: {response.text}[/red]")
@@ -1223,6 +1349,7 @@ class ResearchKBApp(App):
             )
 
     def _handle_text_extraction_configs(self) -> None:
+        """Handle text extraction configuration submission."""
         try:
             api_key_input = self.query_one("#jina-api-key", Input)
             api_key = api_key_input.value.strip()
@@ -1257,3 +1384,286 @@ class ResearchKBApp(App):
         except Exception as e:
             logger.exception("An error occurred")
             self._show_message(f"[red]Error: {e}[/red]")
+
+    # ---- Autocomplete Handling ----
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Handle input changes for autocomplete."""
+        if event.input.id != "command-input":
+            return
+
+        value = event.value.strip()
+
+        # Only show autocomplete if we're typing a slash command (first token)
+        if not value.startswith("/"):
+            self._close_autocomplete()
+            return
+
+        # Check if there's a space (more than one token)
+        if " " in value:
+            self._close_autocomplete()
+            return
+
+        # Get suggestions
+        suggestions = _get_command_suggestions(value)
+
+        if not suggestions:
+            self._close_autocomplete()
+            return
+
+        # Update and show the autocomplete popup
+        self._show_autocomplete(suggestions)
+
+    def _show_autocomplete(self, suggestions: list[Command]) -> None:
+        """Show the autocomplete popup with suggestions."""
+        try:
+            popup = self.query_one("#autocomplete-popup", Container)
+            option_list = self.query_one("#autocomplete-options", OptionList)
+
+            # Clear and populate options
+            option_list.clear_options()
+            for cmd in suggestions:
+                option_list.add_option(_format_suggestion(cmd))
+
+            # Show the popup
+            popup.display = True
+            option_list.focus()
+        except Exception:
+            logger.exception("Error showing autocomplete")
+
+    def _close_autocomplete(self) -> bool:
+        """Close the autocomplete popup. Returns True if it was open."""
+        try:
+            popup = self.query_one("#autocomplete-popup", Container)
+            if popup.display:
+                popup.display = False
+                # Return focus to command input
+                try:
+                    cmd_input = self.query_one("#command-input", Input)
+                    cmd_input.focus()
+                except Exception:
+                    pass
+                return True
+        except Exception:
+            logger.exception("Error closing autocomplete")
+        return False
+
+    def action_move_up(self) -> None:
+        """Handle up arrow - navigate autocomplete or normal behavior."""
+        try:
+            popup = self.query_one("#autocomplete-popup", Container)
+            if popup.display:
+                option_list = self.query_one("#autocomplete-options", OptionList)
+                option_list.action_cursor_up()
+                return
+        except Exception:
+            pass
+
+    def action_move_down(self) -> None:
+        """Handle down arrow - navigate autocomplete or normal behavior."""
+        try:
+            popup = self.query_one("#autocomplete-popup", Container)
+            if popup.display:
+                option_list = self.query_one("#autocomplete-options", OptionList)
+                option_list.action_cursor_down()
+                return
+        except Exception:
+            pass
+
+    def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
+        """Handle selection from the autocomplete popup."""
+        try:
+            popup = self.query_one("#autocomplete-popup", Container)
+            if not popup.display:
+                return
+
+            # Get the selected index
+            option_list = self.query_one("#autocomplete-options", OptionList)
+            highlighted = option_list.highlighted
+
+            if highlighted is not None:
+                # Get the command at the highlighted index
+                suggestions = _get_command_suggestions(
+                    self.query_one("#command-input", Input).value.strip()
+                )
+                if 0 <= highlighted < len(suggestions):
+                    selected_cmd = suggestions[highlighted]
+
+                    # Close popup and insert canonical command
+                    self._close_autocomplete()
+
+                    cmd_input = self.query_one("#command-input", Input)
+                    # Insert canonical command + space if it takes an argument
+                    suffix = " " if selected_cmd.takes_argument else ""
+                    cmd_input.value = selected_cmd.name + suffix
+                    cmd_input.cursor_position = len(cmd_input.value)
+                    cmd_input.focus()
+        except Exception:
+            logger.exception("Error handling autocomplete selection")
+
+
+# ---- Command Registration ----
+
+# Define command handlers as standalone functions that call app methods
+
+
+def _cmd_help(app: ResearchKBApp, args: str) -> None:
+    """Show help screen."""
+    app._show_welcome()
+
+
+def _cmd_add(app: ResearchKBApp, args: str) -> None:
+    """Add a new resource."""
+    app._show_add_resource()
+
+
+def _cmd_list(app: ResearchKBApp, args: str) -> None:
+    """List all resources."""
+    app._list_resources()
+
+
+def _cmd_details(app: ResearchKBApp, args: str) -> None:
+    """Show resource details."""
+    app._show_resource_details(args)
+
+
+def _cmd_chats(app: ResearchKBApp, args: str) -> None:
+    """List all chats."""
+    app._list_chats()
+
+
+def _cmd_chat(app: ResearchKBApp, args: str) -> None:
+    """Start a new chat with a resource."""
+    app._start_chat(args)
+
+
+def _cmd_continue(app: ResearchKBApp, args: str) -> None:
+    """Continue an existing chat."""
+    app._continue_chat(args)
+
+
+def _cmd_search(app: ResearchKBApp, args: str) -> None:
+    """Semantic search across chunks."""
+    app._show_semantic_search()
+
+
+def _cmd_llm_configs(app: ResearchKBApp, args: str) -> None:
+    """Configure LLM settings."""
+    app._show_llm_configs()
+
+
+def _cmd_text_extraction_configs(app: ResearchKBApp, args: str) -> None:
+    """Configure text extraction settings."""
+    app._show_text_extraction_configs()
+
+
+# Register all commands
+_register_command(
+    Command(
+        name="/help",
+        aliases=["/h"],
+        usage="/help",
+        description="Show this help message",
+        takes_argument=False,
+        handler=_cmd_help,
+    )
+)
+
+_register_command(
+    Command(
+        name="/add",
+        aliases=["/a"],
+        usage="/add",
+        description="Add a new resource",
+        takes_argument=False,
+        handler=_cmd_add,
+    )
+)
+
+_register_command(
+    Command(
+        name="/list",
+        aliases=["/l"],
+        usage="/list",
+        description="List all resources",
+        takes_argument=False,
+        handler=_cmd_list,
+    )
+)
+
+_register_command(
+    Command(
+        name="/details",
+        aliases=["/dr"],
+        usage="/details <resource_id>",
+        description="Show details of a resource",
+        takes_argument=True,
+        handler=_cmd_details,
+    )
+)
+
+_register_command(
+    Command(
+        name="/chats",
+        aliases=["/cs"],
+        usage="/chats",
+        description="List all chats",
+        takes_argument=False,
+        handler=_cmd_chats,
+    )
+)
+
+_register_command(
+    Command(
+        name="/chat",
+        aliases=["/c"],
+        usage="/chat <resource_id>",
+        description="Start a NEW chat with a resource",
+        takes_argument=True,
+        handler=_cmd_chat,
+    )
+)
+
+_register_command(
+    Command(
+        name="/continue",
+        aliases=["/co"],
+        usage="/continue <chat_id>",
+        description="Continue an existing chat",
+        takes_argument=True,
+        handler=_cmd_continue,
+    )
+)
+
+_register_command(
+    Command(
+        name="/search",
+        aliases=["/ss"],
+        usage="/search",
+        description="Semantic search across chunks",
+        takes_argument=False,
+        handler=_cmd_search,
+    )
+)
+
+_register_command(
+    Command(
+        name="/llm-configs",
+        aliases=["/lc"],
+        usage="/llm-configs",
+        description="Configure LLM settings",
+        takes_argument=False,
+        handler=_cmd_llm_configs,
+    )
+)
+
+_register_command(
+    Command(
+        name="/text-extraction-configs",
+        aliases=["/tec"],
+        usage="/text-extraction-configs",
+        description="Configure text extraction settings",
+        takes_argument=False,
+        handler=_cmd_text_extraction_configs,
+    )
+)

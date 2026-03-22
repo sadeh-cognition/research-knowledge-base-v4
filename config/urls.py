@@ -10,4 +10,5 @@ urlpatterns = [
     path("llm-chat/", include("django_llm_chat.urls")),
     path("events/", include("events.urls")),
     path("sqlite-viz/", include("sqlite_viz.urls")),
+    path("ladybug-viz/", include("ladybug_viz.urls")),
 ]
