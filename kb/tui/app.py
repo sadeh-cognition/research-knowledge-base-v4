@@ -1,6 +1,3 @@
-from __future__ import annotations
-
-
 from dataclasses import dataclass
 from typing import Callable, Awaitable
 
@@ -16,12 +13,10 @@ from textual.widgets import (
     DataTable,
     OptionList,
 )
-from textual.widget import Widget
 
 import httpx
 from loguru import logger
 
-# Import TUI logging configuration
 from kb.tui_logging_config import setup_textual_logging, setup_from_env
 
 BASE_URL = "http://localhost:8001/api"
@@ -36,7 +31,9 @@ class Command:
     usage: str  # usage string, e.g., "/help" or "/chat <res_id>"
     description: str  # short description for help and autocomplete
     takes_argument: bool  # whether the command expects an argument
-    handler: Callable[[ResearchKBApp, str], None | Awaitable[None]]  # handler to invoke
+    handler: Callable[
+        ["ResearchKBApp", str], None | Awaitable[None]
+    ]  # handler to invoke
 
 
 # Command registry - centralized source of truth for all TUI commands
@@ -92,6 +89,7 @@ def _format_help_text() -> str:
     for cmd in _get_all_commands():
         alias_str = f" ({', '.join(cmd.aliases)})" if cmd.aliases else ""
         lines.append(f"  [bold]{cmd.name}[/bold]{alias_str}")
+        lines.append(f"      Usage: {cmd.usage}")
         lines.append(f"      {cmd.description}")
 
     lines.append("\n[italic]All commands must start with / (e.g., /help)[/italic]")
@@ -786,9 +784,6 @@ class ResearchKBApp(App):
         elif input_id == "llm-api-key":
             await self._handle_llm_configs()
             return
-        elif input_id == "kg-trigger":
-            await self._handle_add_kg_config()
-            return
         elif input_id == "jina-api-key":
             self._handle_text_extraction_configs()
             return
@@ -932,7 +927,9 @@ class ResearchKBApp(App):
             if response.status_code == 200:
                 resources = response.json()
                 if not resources:
-                    self._show_message("No resources found. Use /add to add one.")
+                    self._show_message(
+                        "No resources found. Use /resource-add to add one."
+                    )
                     return
 
                 lines = ["[bold]Resources:[/bold]\n"]
@@ -941,7 +938,7 @@ class ResearchKBApp(App):
                     lines.append(
                         f"  [bold]{r['id']}[/bold] | {r['resource_type']} | {title} | {r['url']}"
                     )
-                lines.append("\nUse /chat <id> to chat with a resource.")
+                lines.append("\nUse /chat-start <id> to chat with a resource.")
                 self._show_message("\n".join(lines))
             else:
                 self._show_message(f"[red]Error: {response.text}[/red]")
@@ -954,8 +951,8 @@ class ResearchKBApp(App):
     def _show_resource_details(self, resource_id_str: str) -> None:
         if not resource_id_str:
             self._show_message(
-                "[red]Usage: /details <resource_id> (or /dr <resource_id>)[/red]\n"
-                "Use /list to see available resources."
+                "[red]Usage: /resource-details <resource_id> (or /rd <resource_id>)[/red]\n"
+                "Use /resource-list to see available resources."
             )
             return
 
@@ -1091,7 +1088,7 @@ class ResearchKBApp(App):
         if not chat_id_str:
             self._show_message(
                 "[red]Usage: /continue <chat_id>[/red]\n"
-                "Use /chats to see existing chats."
+                "Use /chat-list to see existing chats."
             )
             return
 
@@ -1143,7 +1140,7 @@ class ResearchKBApp(App):
                 else:
                     self._show_message(
                         f"[red]Chat {chat_id} not found.[/red]\n"
-                        "Use /chats to see available chats."
+                        "Use /chat-list to see available chats."
                     )
             else:
                 self._show_message(f"[red]Error: {response.text}[/red]")
@@ -1242,9 +1239,17 @@ class ResearchKBApp(App):
         try:
             from kb.schemas import DefaultLLMConfigIn
 
+            from kb.services.llm import LLMProvider
+
+            try:
+                provider_enum = LLMProvider(provider)
+            except ValueError:
+                self._show_message(f"[red]Unknown provider: {provider}[/red]")
+                return
+
             payload = DefaultLLMConfigIn(
                 model_name=model_name,
-                provider=provider,
+                provider=provider_enum,
                 api_key=api_key if api_key else None,
             )
             async with httpx.AsyncClient() as client:
@@ -1425,9 +1430,9 @@ class ResearchKBApp(App):
             for cmd in suggestions:
                 option_list.add_option(_format_suggestion(cmd))
 
-            # Show the popup
+            # Show the popup without stealing focus from the command input.
+            # Users should be able to keep typing after "/" to refine the command.
             popup.display = True
-            option_list.focus()
         except Exception:
             logger.exception("Error showing autocomplete")
 
@@ -1571,9 +1576,9 @@ _register_command(
 
 _register_command(
     Command(
-        name="/add",
-        aliases=["/a"],
-        usage="/add",
+        name="/resource-add",
+        aliases=["/ra"],
+        usage="/resource-add",
         description="Add a new resource",
         takes_argument=False,
         handler=_cmd_add,
@@ -1582,9 +1587,9 @@ _register_command(
 
 _register_command(
     Command(
-        name="/list",
-        aliases=["/l"],
-        usage="/list",
+        name="/resource-list",
+        aliases=["/rl"],
+        usage="/resource-list",
         description="List all resources",
         takes_argument=False,
         handler=_cmd_list,
@@ -1593,9 +1598,9 @@ _register_command(
 
 _register_command(
     Command(
-        name="/details",
-        aliases=["/dr"],
-        usage="/details <resource_id>",
+        name="/resource-details",
+        aliases=["/rd"],
+        usage="/resource-details <resource_id>",
         description="Show details of a resource",
         takes_argument=True,
         handler=_cmd_details,
@@ -1604,9 +1609,9 @@ _register_command(
 
 _register_command(
     Command(
-        name="/chats",
-        aliases=["/cs"],
-        usage="/chats",
+        name="/chat-list",
+        aliases=["/cl"],
+        usage="/chat-list",
         description="List all chats",
         takes_argument=False,
         handler=_cmd_chats,
@@ -1615,9 +1620,9 @@ _register_command(
 
 _register_command(
     Command(
-        name="/chat",
-        aliases=["/c"],
-        usage="/chat <resource_id>",
+        name="/chat-start",
+        aliases=["/cs"],
+        usage="/chat-start <resource_id>",
         description="Start a NEW chat with a resource",
         takes_argument=True,
         handler=_cmd_chat,
@@ -1626,9 +1631,9 @@ _register_command(
 
 _register_command(
     Command(
-        name="/continue",
-        aliases=["/co"],
-        usage="/continue <chat_id>",
+        name="/chat-continue",
+        aliases=["/cc"],
+        usage="/chat-continue <chat_id>",
         description="Continue an existing chat",
         takes_argument=True,
         handler=_cmd_continue,

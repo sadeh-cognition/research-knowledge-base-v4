@@ -8,10 +8,10 @@ The application uses LiteLLM to interface with various LLM providers (Groq, Open
 
 ### Adding an LLM Configuration
 
-You can configure a default LLM through the TUI using the `llm-configs` command.
+You can configure a default LLM through the TUI using the `/llm-configs` command.
 
 1.  Open the TUI: `uv run manage.py tui`
-2.  Type `llm-configs` and press Enter.
+2.  Type `/llm-configs` and press Enter (you can use Tab for command autocomplete).
 3.  Fill in the provider (e.g., `groq`, `openai`, `ollama`).
 4.  Fill in the model name (e.g., `groq/llama-3.1-8b-instant`, `openai/gpt-4o`).
 5.  **API Key (Optional):** You can provide an API key in the form, which will be saved in the database. Alternatively, you can provide the API key in your `.env` file.
