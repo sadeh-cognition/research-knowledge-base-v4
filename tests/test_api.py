@@ -4,7 +4,15 @@ from model_bakery import baker
 from ninja.testing import TestClient
 
 from kb.api import api
-from kb.models import LLMConfig, SearchConfig, Secret
+from kb.constants import (
+    DEFAULT_JINA_CONFIG_TITLE,
+    DEFAULT_LLM_CONFIG_NAME,
+    DEFAULT_LLM_SECRET_TITLE,
+    DEFAULT_SEARCH_CONFIG_NAME,
+    DEFAULT_SEARCH_CONFIG_PACKAGE_PATH,
+    StreamUpdateType,
+)
+from kb.models import LLMConfig, ResourceType, SearchConfig, Secret
 from kb.schemas import (
     LLMConfigIn,
     LLMConfigOut,
@@ -49,7 +57,7 @@ class TestResourceEndpoints:
         from kb.schemas import ResourceIn, ResourceStreamUpdate
 
         django_client = Client()
-        payload = {"url": "https://example.com", "resource_type": "paper"}
+        payload = {"url": "https://example.com", "resource_type": ResourceType.PAPER}
 
         response = django_client.post(
             "/api/resources/", data=json.dumps(payload), content_type="application/json"
@@ -71,10 +79,10 @@ class TestResourceEndpoints:
 
         # Check that the last update is the result
         last_update = updates[-1]
-        assert last_update.type == "result"
+        assert last_update.type == StreamUpdateType.RESULT
         assert last_update.resource is not None
         assert last_update.resource.url == "https://example.com"
-        assert last_update.resource.resource_type == "paper"
+        assert last_update.resource.resource_type == ResourceType.PAPER
 
     def test_list_resources_empty(self, db):
         response = client.get("/resources/")
@@ -211,14 +219,14 @@ class TestDefaultLLMConfigEndpoints:
         assert response.status_code == 200
         data = LLMConfigOut(**response.json())
 
-        assert data.name == "Default Chat LLM"
+        assert data.name == DEFAULT_LLM_CONFIG_NAME
         assert data.model_name == "groq/llama-3.1-8b-instant"
         assert data.is_default is True
         assert data.secret_id is not None
 
         # Verify secret was created
         secret = Secret.objects.get(id=data.secret_id)
-        assert secret.title == "DEFAULT_LLM_API_KEY"
+        assert secret.title == DEFAULT_LLM_SECRET_TITLE
         assert secret.value == "sk-test-key"
 
     def test_setup_default_llm_config_without_key(self, db):
@@ -230,7 +238,7 @@ class TestDefaultLLMConfigEndpoints:
         assert response.status_code == 200
         data = LLMConfigOut(**response.json())
 
-        assert data.name == "Default Chat LLM"
+        assert data.name == DEFAULT_LLM_CONFIG_NAME
         assert data.model_name == "groq/llama-3.1-8b-instant"
         assert data.is_default is True
         assert data.secret_id is None
@@ -272,12 +280,12 @@ class TestTextExtractionConfigEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert len(data) >= 1
-        assert any(c["title"] == "JINA AI API" for c in data)
+        assert any(c["title"] == DEFAULT_JINA_CONFIG_TITLE for c in data)
 
     def test_set_and_get_text_extraction_config_secret(self, db):
         from kb.models import TextExtractionConfig
 
-        config = TextExtractionConfig.objects.get(title="JINA AI API")
+        config = TextExtractionConfig.objects.get(title=DEFAULT_JINA_CONFIG_TITLE)
 
         # Get when no secret exists
         response = client.get(f"/text-extraction-configs/{config.id}/secret/")
@@ -306,9 +314,8 @@ class TestSearchEndpoints:
         assert response.status_code == 200
         data = response.json()
         assert any(
-            config["name"] == "semantic search"
-            and config["package_path"]
-            == "kb.services.search_engines.semantic_search.search"
+            config["name"] == DEFAULT_SEARCH_CONFIG_NAME
+            and config["package_path"] == DEFAULT_SEARCH_CONFIG_PACKAGE_PATH
             for config in data
         )
 

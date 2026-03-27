@@ -39,12 +39,13 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "ninja",
     "django_llm_chat",
+    "conf",
     "kb",
     "events",
     "django_chromadb_viz",
     "django_lightrag",
     "sqlite_viz",
-    # "ladybug_viz",
+    "ladybug_viz",
 ]
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"

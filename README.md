@@ -10,11 +10,13 @@ The application uses LiteLLM to interface with various LLM providers (Groq, Open
 
 You can configure a default LLM through the TUI using the `/llm-configs` command.
 
-1.  Open the TUI: `uv run manage.py tui`
-2.  Type `/llm-configs` and press Enter (you can use Tab for command autocomplete).
-3.  Fill in the provider (e.g., `groq`, `openai`, `ollama`).
-4.  Fill in the model name (e.g., `groq/llama-3.1-8b-instant`, `openai/gpt-4o`).
-5.  **API Key (Optional):** You can provide an API key in the form, which will be saved in the database. Alternatively, you can provide the API key in your `.env` file.
+1. Open the TUI: `uv run manage.py tui`
+2. Type `/llm-configs` and press Enter (you can use Tab for command autocomplete).
+3. Fill in the provider (e.g., `groq`, `openai`, `ollama`).
+4. Fill in the model name (e.g., `groq/llama-3.1-8b-instant`, `openai/gpt-4o`).
+5. You can provide an API key in the form, which will be saved in the database. Alternatively, you can provide the API key in your `.env` file.
+
+Note that model name and api key env var should be set according to `litellm` docs. Check the docs for the provider you're using, e.g: <https://docs.litellm.ai/docs/providers/groq>
 
 ### Environment Variables for API Keys
 
@@ -31,14 +33,16 @@ ANTHROPIC_API_KEY=your_anthropic_api_key
 OPENROUTER_API_KEY=your_openrouter_api_key
 ```
 
-### Running the Application
+## The TUI
 
-To run the backend server:
+Run the backend server:
+
 ```bash
 uv run manage.py runserver 8001
 ```
 
-To run the TUI:
+Then, the TUI:
+
 ```bash
 uv run manage.py tui
 ```

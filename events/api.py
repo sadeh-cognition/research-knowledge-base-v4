@@ -1,5 +1,5 @@
 from ninja import Router
-from events.models import Event, EventConsumer, EventConsumed
+from events.models import EntityTypes, Event, EventConsumer, EventConsumed
 from events.schemas import EventFlowOut
 from kb.models import Resource
 from django_llm_chat.models import Chat
@@ -19,12 +19,12 @@ def get_event_flow(request):
     resource_ids = [
         int(e.entity_id)
         for e in events
-        if e.entity == "resource" and e.entity_id.isdigit()
+        if e.entity == EntityTypes.RESOURCE and e.entity_id.isdigit()
     ]
     chat_ids = []
 
     for e in events:
-        if e.entity == "chat":
+        if e.entity == EntityTypes.CHAT:
             if ":" in e.entity_id:  # chat_id:config_id
                 chat_id_part = e.entity_id.split(":")[0]
                 if chat_id_part.isdigit():
@@ -38,9 +38,9 @@ def get_event_flow(request):
     chats = {c.id: f"Chat {c.id}" for c in Chat.objects.filter(id__in=chat_ids)}
 
     for e in events:
-        if e.entity == "resource" and e.entity_id.isdigit():
+        if e.entity == EntityTypes.RESOURCE and e.entity_id.isdigit():
             e.entity_name = resources.get(int(e.entity_id))
-        elif e.entity == "chat":
+        elif e.entity == EntityTypes.CHAT:
             c_id = None
             if ":" in e.entity_id:
                 chat_id_part = e.entity_id.split(":")[0]

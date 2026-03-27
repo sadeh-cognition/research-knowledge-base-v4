@@ -1,5 +1,6 @@
 import pytest
 from textual.widgets import Static, Label, Input, OptionList
+from kb.models import ResourceType
 from kb.tui.app import ResearchKBApp, _get_command_suggestions
 from unittest.mock import patch, MagicMock
 
@@ -77,7 +78,7 @@ async def test_show_resource_details_success(mock_httpx):
             mock_response.json.return_value = {
                 "id": 1,
                 "url": "https://example.com",
-                "resource_type": "paper",
+                "resource_type": ResourceType.PAPER,
                 "date_created": "2023-01-01T12:00:00Z",
                 "extracted_text": "hello",
                 "summary": "A short summary",
@@ -413,7 +414,7 @@ async def test_details_command_with_alias_and_arg(mock_httpx):
             mock_response.json.return_value = {
                 "id": 1,
                 "url": "https://test.com",
-                "resource_type": "paper",
+                "resource_type": ResourceType.PAPER,
                 "extracted_text": "test",
                 "summary": "test summary",
             }

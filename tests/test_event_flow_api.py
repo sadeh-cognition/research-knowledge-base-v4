@@ -52,3 +52,4 @@ def test_event_flow_api(api_client):
     event_ids = [e.id for e in data.events]
     assert event1.id in event_ids
     assert event2.id in event_ids
+    assert all(e.triggered_by for e in data.events)

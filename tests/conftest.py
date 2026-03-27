@@ -5,7 +5,7 @@ from model_bakery import baker
 os.environ["NINJA_SKIP_REGISTRY"] = "yes"
 
 
-from kb.models import Chunk, ChunkConfig, LLMConfig, Resource, Secret
+from kb.models import Chunk, ChunkConfig, LLMConfig, Resource, ResourceType, Secret
 
 
 @pytest.fixture
@@ -38,7 +38,7 @@ def resource(db) -> Resource:
     return baker.make(
         Resource,
         url="https://example.com/test-paper",
-        resource_type=Resource.ResourceType.PAPER,
+        resource_type=ResourceType.PAPER,
         extracted_text="This is test content from a paper.",
     )
 

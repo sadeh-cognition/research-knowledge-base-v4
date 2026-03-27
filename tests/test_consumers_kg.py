@@ -1,7 +1,9 @@
 import pytest
-from events.models import Event, EntityTypes, EventDescriptions
+from conf.models import KnowledgeGraphUpdateTrigger
+from events.models import ConsumptionStatus, Event, EntityTypes, EventDescriptions
 from events.consumers import consume_check_kg_update, consume_update_knowledge_graph
 from kb.models import KnowledgeGraphConfig
+from kb.services.llm import LLMProvider
 from django_llm_chat.models import Message, Chat
 
 
@@ -10,7 +12,9 @@ class TestKGConsumers:
     def test_check_kg_update_always(self):
         # Create config
         config = KnowledgeGraphConfig.objects.create(
-            name="Test KG", update_trigger="always", is_active=True
+            name="Test KG",
+            update_trigger=KnowledgeGraphUpdateTrigger.ALWAYS,
+            is_active=True,
         )
 
         # Create event
@@ -36,12 +40,17 @@ class TestKGConsumers:
         from kb.models import LLMConfig
 
         LLMConfig.objects.create(
-            name="mock_llm", model_name="mock", provider="lmstudio", is_default=True
+            name="mock_llm",
+            model_name="mock",
+            provider=LLMProvider.LMSTUDIO,
+            is_default=True,
         )
         User = get_user_model()
         user = User.objects.create(username="testuser_intent1")
         KnowledgeGraphConfig.objects.create(
-            name="Test KG Intent", update_trigger="llm_intent", is_active=True
+            name="Test KG Intent",
+            update_trigger=KnowledgeGraphUpdateTrigger.LLM_INTENT,
+            is_active=True,
         )
 
         chat = Chat.objects.create()
@@ -69,12 +78,17 @@ class TestKGConsumers:
         from kb.models import LLMConfig
 
         LLMConfig.objects.create(
-            name="mock_llm2", model_name="mock2", provider="lmstudio", is_default=True
+            name="mock_llm2",
+            model_name="mock2",
+            provider=LLMProvider.LMSTUDIO,
+            is_default=True,
         )
         User = get_user_model()
         user = User.objects.create(username="testuser_intent2")
         KnowledgeGraphConfig.objects.create(
-            name="Test KG Intent", update_trigger="llm_intent", is_active=True
+            name="Test KG Intent",
+            update_trigger=KnowledgeGraphUpdateTrigger.LLM_INTENT,
+            is_active=True,
         )
 
         chat = Chat.objects.create()
@@ -112,4 +126,7 @@ class TestKGConsumers:
         assert count == 1
 
         # It's mocked so it won't actually fail import or execute
-        assert Event.objects.get(id=event.id).eventconsumed_set.first().status == "OK"
+        assert (
+            Event.objects.get(id=event.id).eventconsumed_set.first().status
+            == ConsumptionStatus.OK
+        )

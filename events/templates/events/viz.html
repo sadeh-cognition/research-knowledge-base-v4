@@ -187,7 +187,7 @@
                         if (e.entity_name.length > 30) safeName += '...';
                         entityDisp += `<br/><small><b>${safeName}</b></small>`;
                     }
-                    graphDef += `${safeId}["⚡ Event ${e.id}<br/>${entityDisp}<br/><b>${e.description}</b>"]:::event\n`;
+                    graphDef += `${safeId}["⚡ Event ${e.id}<br/>${entityDisp}<br/><b>${e.description}</b><br/><small>Triggered by: ${e.triggered_by}</small>"]:::event\n`;
                 });
 
                 // Add Edges for consumptions

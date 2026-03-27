@@ -1,7 +1,14 @@
 from datetime import datetime
 from typing import Any
 
+from conf.models import (
+    DEFAULT_KNOWLEDGE_GRAPH_PACKAGE_NAME,
+    EmbeddingProvider,
+    KnowledgeGraphUpdateTrigger,
+)
 from ninja import Schema
+from kb.constants import DEFAULT_SEARCH_CONFIG_NAME, StreamUpdateType
+from kb.models import ResourceType
 from kb.services.llm import LLMProvider
 
 
@@ -24,7 +31,7 @@ class SecretOut(Schema):
 
 class ResourceIn(Schema):
     url: str
-    resource_type: str  # "paper" or "blog_post"
+    resource_type: ResourceType
 
 
 class ReferenceOut(Schema):
@@ -54,7 +61,7 @@ class ResourceListOut(Schema):
 
 class ResourceStreamUpdate(Schema):
     status: str
-    type: str  # "status" or "result"
+    type: StreamUpdateType
     resource: ResourceOut | None = None
 
 
@@ -122,7 +129,7 @@ class LLMConfigOut(Schema):
 class EmbeddingStatusOut(Schema):
     is_valid: bool
     message: str
-    provider: str | None = None
+    provider: EmbeddingProvider | None = None
     model_name: str | None = None
 
 
@@ -200,8 +207,8 @@ class SearchContextOut(Schema):
 
 class KnowledgeGraphConfigIn(Schema):
     name: str
-    package_name: str = "django_lightrag"
-    update_trigger: str = "always"
+    package_name: str = DEFAULT_KNOWLEDGE_GRAPH_PACKAGE_NAME
+    update_trigger: KnowledgeGraphUpdateTrigger = KnowledgeGraphUpdateTrigger.ALWAYS
     is_active: bool = False
 
 

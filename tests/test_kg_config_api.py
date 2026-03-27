@@ -1,4 +1,5 @@
 import pytest
+from conf.models import KnowledgeGraphUpdateTrigger
 from tests.test_api import client
 from kb.models import KnowledgeGraphConfig
 
@@ -14,7 +15,7 @@ class TestKnowledgeGraphConfigAPI:
         payload = {
             "name": "Test KG",
             "package_name": "custom.pkg",
-            "update_trigger": "always",
+            "update_trigger": KnowledgeGraphUpdateTrigger.ALWAYS,
             "is_active": True,
         }
         response = client.post("/kg-configs/", json=payload)
@@ -48,7 +49,7 @@ class TestKnowledgeGraphConfigAPI:
         payload = {
             "name": "New Name",
             "package_name": "new.pkg",
-            "update_trigger": "llm_intent",
+            "update_trigger": KnowledgeGraphUpdateTrigger.LLM_INTENT,
             "is_active": True,
         }
         response = client.put(f"/kg-configs/{config.id}/", json=payload)

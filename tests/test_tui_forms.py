@@ -1,7 +1,13 @@
 import pytest
+from conf.models import (
+    DEFAULT_KNOWLEDGE_GRAPH_PACKAGE_NAME,
+    KnowledgeGraphUpdateTrigger,
+)
 from textual.widgets import Input, Label, Select
 from unittest.mock import AsyncMock, patch, MagicMock
 
+from kb.constants import DEFAULT_SEARCH_CONFIG_NAME, DEFAULT_SEARCH_CONFIG_PACKAGE_PATH
+from kb.models import ResourceType
 from kb.tui.app import ResearchKBApp
 
 pytestmark = pytest.mark.asyncio
@@ -39,7 +45,7 @@ def mock_httpx_post():
         mock_response.json.return_value = {
             "id": 1,
             "url": "http://test.com",
-            "resource_type": "paper",
+            "resource_type": ResourceType.PAPER,
             "name": "test-model",
             "model_name": "test-model",
             "is_default": True,
@@ -66,7 +72,7 @@ async def test_hide_command_prompt_in_add_form(mock_httpx_responses):
                 return mock_input
             elif selector == "#add-type":
                 mock_input = MagicMock()
-                mock_input.value = "paper"
+                mock_input.value = ResourceType.PAPER
                 return mock_input
             return original_query_one(selector, *args, **kwargs)
 
@@ -122,8 +128,8 @@ async def test_escape_key_returns_from_semantic_search_view():
                     response.json.return_value = [
                         {
                             "id": 1,
-                            "name": "semantic search",
-                            "package_path": "kb.services.search_engines.semantic_search.search",
+                            "name": DEFAULT_SEARCH_CONFIG_NAME,
+                            "package_path": DEFAULT_SEARCH_CONFIG_PACKAGE_PATH,
                         }
                     ]
                 else:
@@ -200,8 +206,8 @@ async def test_hide_command_prompt_in_search_configs_form(mock_httpx_responses):
             mock_response.json.return_value = [
                 {
                     "id": 1,
-                    "name": "semantic search",
-                    "package_path": "kb.services.search_engines.semantic_search.search",
+                    "name": DEFAULT_SEARCH_CONFIG_NAME,
+                    "package_path": DEFAULT_SEARCH_CONFIG_PACKAGE_PATH,
                 }
             ]
             mock_get.return_value = mock_response
@@ -231,8 +237,12 @@ async def test_submit_kg_config_form_posts_payload(
             await pilot.wait_for_animation()
 
             app.query_one("#kg-name", Input).value = "Primary KG"
-            app.query_one("#kg-package-name", Input).value = "django_lightrag"
-            app.query_one("#kg-update-trigger", Input).value = "llm_intent"
+            app.query_one(
+                "#kg-package-name", Input
+            ).value = DEFAULT_KNOWLEDGE_GRAPH_PACKAGE_NAME
+            app.query_one(
+                "#kg-update-trigger", Input
+            ).value = KnowledgeGraphUpdateTrigger.LLM_INTENT
             app.query_one("#kg-active", Input).value = "true"
             app.query_one("#kg-active", Input).focus()
 
@@ -246,8 +256,8 @@ async def test_submit_kg_config_form_posts_payload(
         )
         assert mock_httpx_post.call_args.kwargs["json"] == {
             "name": "Primary KG",
-            "package_name": "django_lightrag",
-            "update_trigger": "llm_intent",
+            "package_name": DEFAULT_KNOWLEDGE_GRAPH_PACKAGE_NAME,
+            "update_trigger": KnowledgeGraphUpdateTrigger.LLM_INTENT,
             "is_active": True,
         }
         mock_notify.assert_called_once()
@@ -264,8 +274,8 @@ async def test_search_config_screen_renders_existing_configs_and_form(
             mock_response.json.return_value = [
                 {
                     "id": 1,
-                    "name": "semantic search",
-                    "package_path": "kb.services.search_engines.semantic_search.search",
+                    "name": DEFAULT_SEARCH_CONFIG_NAME,
+                    "package_path": DEFAULT_SEARCH_CONFIG_PACKAGE_PATH,
                 },
                 {
                     "id": 2,
@@ -282,7 +292,7 @@ async def test_search_config_screen_renders_existing_configs_and_form(
         assert app.query("#search-config-name")
         assert app.query("#search-config-package-path")
         content = "\n".join(str(label.render()) for label in app.query(Label))
-        assert "semantic search" in content
+        assert DEFAULT_SEARCH_CONFIG_NAME in content
         assert "alternate" in content
 
 
@@ -305,16 +315,16 @@ async def test_submit_search_config_form_posts_payload_and_refreshes_screen(
                         response.json.return_value = [
                             {
                                 "id": 1,
-                                "name": "semantic search",
-                                "package_path": "kb.services.search_engines.semantic_search.search",
+                                "name": DEFAULT_SEARCH_CONFIG_NAME,
+                                "package_path": DEFAULT_SEARCH_CONFIG_PACKAGE_PATH,
                             }
                         ]
                     else:
                         response.json.return_value = [
                             {
                                 "id": 1,
-                                "name": "semantic search",
-                                "package_path": "kb.services.search_engines.semantic_search.search",
+                                "name": DEFAULT_SEARCH_CONFIG_NAME,
+                                "package_path": DEFAULT_SEARCH_CONFIG_PACKAGE_PATH,
                             },
                             {
                                 "id": 2,
@@ -381,8 +391,8 @@ async def test_semantic_search_screen_renders_config_selector_and_defaults_to_se
                     response.json.return_value = [
                         {
                             "id": 1,
-                            "name": "semantic search",
-                            "package_path": "kb.services.search_engines.semantic_search.search",
+                            "name": DEFAULT_SEARCH_CONFIG_NAME,
+                            "package_path": DEFAULT_SEARCH_CONFIG_PACKAGE_PATH,
                         },
                         {
                             "id": 2,
@@ -417,8 +427,8 @@ async def test_live_search_request_includes_search_config_id(mock_httpx_response
                     response.json.return_value = [
                         {
                             "id": 1,
-                            "name": "semantic search",
-                            "package_path": "kb.services.search_engines.semantic_search.search",
+                            "name": DEFAULT_SEARCH_CONFIG_NAME,
+                            "package_path": DEFAULT_SEARCH_CONFIG_PACKAGE_PATH,
                         },
                         {
                             "id": 2,

@@ -1,3 +1,13 @@
+from conf.models import (
+    ChunkConfig,
+    EmbeddingProvider,
+    EmbeddingModelConfig,
+    KnowledgeGraphConfig,
+    LLMConfig,
+    SearchConfig,
+    Secret,
+    TextExtractionConfig,
+)
 from django.http import StreamingHttpResponse
 from django.shortcuts import get_object_or_404
 from loguru import logger
@@ -8,17 +18,14 @@ import requests
 
 from events.models import EntityTypes, EventDescriptions
 from events.services import fire_event
-from kb.models import (
-    Chunk,
-    ChunkConfig,
-    LLMConfig,
-    Resource,
-    SearchConfig,
-    Secret,
-    TextExtractionConfig,
-    EmbeddingModelConfig,
-    KnowledgeGraphConfig,
+from kb.constants import (
+    DEFAULT_JINA_CONFIG_TITLE,
+    DEFAULT_LLM_CONFIG_NAME,
+    DEFAULT_LLM_SECRET_TITLE,
+    DEFAULT_SEARCH_CONFIG_NAME,
+    StreamUpdateType,
 )
+from kb.models import Chunk, Resource
 from kb.schemas import (
     ChatHistoryOut,
     ChatListOut,
@@ -89,19 +96,22 @@ def create_resource(request, payload: ResourceIn):
 
         yield (
             ResourceStreamUpdate(
-                status="Starting extraction...", type="status"
+                status="Starting extraction...", type=StreamUpdateType.STATUS
             ).model_dump_json()
             + "\n"
         )
 
         # Get Jina API key from secrets via TextExtractionConfig
-        jina_config = TextExtractionConfig.objects.filter(title="JINA AI API").first()
+        jina_config = TextExtractionConfig.objects.filter(
+            title=DEFAULT_JINA_CONFIG_TITLE
+        ).first()
         jina_secret = jina_config.secrets.first() if jina_config else None
         api_key = jina_secret.value if jina_secret else ""
 
         yield (
             ResourceStreamUpdate(
-                status="Extracting text using Jina Reader API...", type="status"
+                status="Extracting text using Jina Reader API...",
+                type=StreamUpdateType.STATUS,
             ).model_dump_json()
             + "\n"
         )
@@ -111,7 +121,7 @@ def create_resource(request, payload: ResourceIn):
 
         yield (
             ResourceStreamUpdate(
-                status="Saving resource to database...", type="status"
+                status="Saving resource to database...", type=StreamUpdateType.STATUS
             ).model_dump_json()
             + "\n"
         )
@@ -125,7 +135,8 @@ def create_resource(request, payload: ResourceIn):
 
         yield (
             ResourceStreamUpdate(
-                status="Firing text extraction cleanup event...", type="status"
+                status="Firing text extraction cleanup event...",
+                type=StreamUpdateType.STATUS,
             ).model_dump_json()
             + "\n"
         )
@@ -140,7 +151,9 @@ def create_resource(request, payload: ResourceIn):
         res_out = ResourceOut.from_orm(resource)
         yield (
             ResourceStreamUpdate(
-                status="Completed", type="result", resource=res_out
+                status="Completed",
+                type=StreamUpdateType.RESULT,
+                resource=res_out,
             ).model_dump_json()
             + "\n"
         )
@@ -276,7 +289,7 @@ def setup_default_llm_config(request, payload: DefaultLLMConfigIn) -> LLMConfig:
     secret = None
     if payload.api_key:
         secret, _ = Secret.objects.update_or_create(
-            title="DEFAULT_LLM_API_KEY", defaults={"value": payload.api_key}
+            title=DEFAULT_LLM_SECRET_TITLE, defaults={"value": payload.api_key}
         )
 
     # Clear other defaults
@@ -289,7 +302,7 @@ def setup_default_llm_config(request, payload: DefaultLLMConfigIn) -> LLMConfig:
     )
 
     config, _ = LLMConfig.objects.update_or_create(
-        name="Default Chat LLM",
+        name=DEFAULT_LLM_CONFIG_NAME,
         defaults={
             "model_name": model_name_for_config,
             "provider": payload.provider,
@@ -359,14 +372,14 @@ def get_embedding_status(request) -> dict:
             "message": "No active embedding model configuration found",
         }
 
-    if config.model_provider == "LMStudio":
+    if config.model_provider == EmbeddingProvider.LMSTUDIO:
         try:
             response = httpx.get(f"{settings.LMSTUDIO_BASE_URL}/v1/models", timeout=5.0)
             if response.status_code != 200:
                 return {
                     "is_valid": False,
                     "message": f"LMStudio returned error: {response.status_code}",
-                    "provider": "LMStudio",
+                    "provider": EmbeddingProvider.LMSTUDIO,
                     "model_name": config.model_name,
                 }
 
@@ -378,14 +391,14 @@ def get_embedding_status(request) -> dict:
                 return {
                     "is_valid": True,
                     "message": "LMStudio server is running and model is loaded",
-                    "provider": "LMStudio",
+                    "provider": EmbeddingProvider.LMSTUDIO,
                     "model_name": config.model_name,
                 }
             else:
                 return {
                     "is_valid": False,
                     "message": f"Model '{config.model_name}' not loaded in LMStudio",
-                    "provider": "LMStudio",
+                    "provider": EmbeddingProvider.LMSTUDIO,
                     "model_name": config.model_name,
                 }
         except httpx.ConnectError:
@@ -393,7 +406,7 @@ def get_embedding_status(request) -> dict:
             return {
                 "is_valid": False,
                 "message": "LMStudio server not running",
-                "provider": "LMStudio",
+                "provider": EmbeddingProvider.LMSTUDIO,
                 "model_name": config.model_name,
             }
         except Exception as e:
@@ -401,7 +414,7 @@ def get_embedding_status(request) -> dict:
             return {
                 "is_valid": False,
                 "message": f"Error connecting to LMStudio: {str(e)}",
-                "provider": "LMStudio",
+                "provider": EmbeddingProvider.LMSTUDIO,
                 "model_name": config.model_name,
             }
     else:
@@ -584,11 +597,18 @@ def search_chunks(
         if search_config_id is not None:
             search_config = get_object_or_404(SearchConfig, id=search_config_id)
         else:
-            search_config = SearchConfig.objects.filter(name="semantic search").first()
+            search_config = SearchConfig.objects.filter(
+                name=DEFAULT_SEARCH_CONFIG_NAME
+            ).first()
             if search_config is None:
                 return api.create_response(
                     request,
-                    {"error": "Default search config 'semantic search' is missing."},
+                    {
+                        "error": (
+                            f"Default search config "
+                            f"'{DEFAULT_SEARCH_CONFIG_NAME}' is missing."
+                        )
+                    },
                     status=500,
                 )
 

@@ -1,4 +1,5 @@
 from typing import Any, Union
+from conf.models import EmbeddingModelConfig
 from django.conf import settings
 import httpx
 import numpy as np
@@ -6,7 +7,6 @@ import numpy as np
 from chonkie import SemanticChunker
 from chonkie.embeddings.base import BaseEmbeddings
 from chonkie.tokenizer import CharacterTokenizer
-from kb.models import EmbeddingModelConfig
 
 
 class LMStudioEmbeddings(BaseEmbeddings):

@@ -3,6 +3,7 @@ from model_bakery import baker
 from django.core.management import call_command
 
 from events.models import (
+    DEFAULT_EVENT_TRIGGER,
     Event,
     EventConsumed,
     EntityTypes,
@@ -31,6 +32,7 @@ def test_fire_event():
     assert event.entity == EntityTypes.RESOURCE
     assert event.entity_id == "123"
     assert event.description == EventDescriptions.TEXT_EXTRACTED
+    assert event.triggered_by == DEFAULT_EVENT_TRIGGER
 
     # Test str
     assert str(event) == "Resource 123: Text Extracted From Resource"
@@ -58,7 +60,7 @@ def test_clean_up_extracted_text_consumer(monkeypatch):
     )
 
     baker.make(
-        "kb.LLMConfig",
+        "conf.LLMConfig",
         name="default",
         is_default=True,
         provider="groq",
@@ -81,6 +83,7 @@ def test_clean_up_extracted_text_consumer(monkeypatch):
         description=EventDescriptions.CLEAN_UP_FINISHED,
     )
     assert next_events.count() == 1
+    assert next_events.get().triggered_by == "Clean up extracted text"
 
     # Verify it marked the initial event as consumed
     consumer = get_or_create_consumer("Clean up extracted text")
@@ -102,7 +105,7 @@ def test_summarize_consumer():
     )
 
     baker.make(
-        "kb.LLMConfig",
+        "conf.LLMConfig",
         name="default",
         is_default=True,
         provider="groq",
@@ -165,7 +168,7 @@ def test_run_consumers_command():
     )
 
     baker.make(
-        "kb.LLMConfig",
+        "conf.LLMConfig",
         name="default",
         is_default=True,
         provider="groq",
@@ -196,7 +199,7 @@ def test_extract_title_of_resource_consumer():
     )
 
     baker.make(
-        "kb.LLMConfig",
+        "conf.LLMConfig",
         name="default",
         is_default=True,
         provider="groq",

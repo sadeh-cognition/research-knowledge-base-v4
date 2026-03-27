@@ -1,6 +1,9 @@
 from django.db import models
 
 
+DEFAULT_EVENT_TRIGGER = "backend"
+
+
 class EntityTypes(models.TextChoices):
     RESOURCE = "resource", "Resource"
     CHAT = "chat", "Chat"
@@ -23,6 +26,7 @@ class Event(models.Model):
     entity = models.CharField(max_length=50, choices=EntityTypes.choices)
     entity_id = models.CharField(max_length=255)
     description = models.CharField(max_length=255, choices=EventDescriptions.choices)
+    triggered_by = models.CharField(max_length=255, default=DEFAULT_EVENT_TRIGGER)
     date_created = models.DateTimeField(auto_now_add=True)
 
     class Meta:

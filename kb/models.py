@@ -1,45 +1,12 @@
 from django.db import models
-from kb.services.llm import LLMProvider
 
 
-class TextExtractionConfig(models.Model):
-    title: models.CharField = models.CharField(max_length=255, unique=True)
-    details: models.JSONField = models.JSONField(default=dict)
-    date_created: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    date_updated: models.DateTimeField = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ["title"]
-
-    def __str__(self) -> str:
-        return self.title
-
-
-class Secret(models.Model):
-    title: models.CharField = models.CharField(max_length=255, unique=True)
-    value: models.TextField = models.TextField()
-    text_extraction_config: models.ForeignKey = models.ForeignKey(
-        TextExtractionConfig,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="secrets",
-    )
-    date_created: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    date_updated: models.DateTimeField = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ["title"]
-
-    def __str__(self) -> str:
-        return self.title
+class ResourceType(models.TextChoices):
+    PAPER = "paper", "Paper"
+    BLOG_POST = "blog_post", "Blog Post"
 
 
 class Resource(models.Model):
-    class ResourceType(models.TextChoices):
-        PAPER = "paper", "Paper"
-        BLOG_POST = "blog_post", "Blog Post"
-
     url: models.URLField = models.URLField(unique=True)
     resource_type: models.CharField = models.CharField(
         max_length=20, choices=ResourceType.choices
@@ -57,19 +24,6 @@ class Resource(models.Model):
         return f"{self.get_resource_type_display()}: {self.url}"
 
 
-class ChunkConfig(models.Model):
-    name: models.CharField = models.CharField(max_length=255, unique=True)
-    details: models.JSONField = models.JSONField(default=dict)
-    date_created: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    date_updated: models.DateTimeField = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ["name"]
-
-    def __str__(self) -> str:
-        return self.name
-
-
 class Chunk(models.Model):
     text: models.TextField = models.TextField()
     order: models.PositiveIntegerField = models.PositiveIntegerField()
@@ -77,7 +31,7 @@ class Chunk(models.Model):
         Resource, on_delete=models.CASCADE, related_name="chunks"
     )
     chunk_config: models.ForeignKey = models.ForeignKey(
-        ChunkConfig, on_delete=models.CASCADE, related_name="chunks"
+        "conf.ChunkConfig", on_delete=models.CASCADE, related_name="chunks"
     )
     date_created: models.DateTimeField = models.DateTimeField(auto_now_add=True)
 
@@ -87,59 +41,6 @@ class Chunk(models.Model):
 
     def __str__(self) -> str:
         return f"Chunk {self.order} of Resource {self.resource_id}"
-
-
-class LLMConfig(models.Model):
-    name: models.CharField = models.CharField(max_length=255, unique=True)
-    model_name: models.CharField = models.CharField(max_length=255)
-    provider: models.CharField = models.CharField(
-        max_length=255,
-        choices=[(tag.value, tag.name) for tag in LLMProvider],
-        default=LLMProvider.OPENAI.value,
-    )
-    is_default: models.BooleanField = models.BooleanField(default=False)
-    secret: models.ForeignKey = models.ForeignKey(
-        Secret,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="llm_configs",
-    )
-    date_created: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    date_updated: models.DateTimeField = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ["name"]
-
-    def __str__(self) -> str:
-        return f"{self.name} ({self.model_name})"
-
-
-class EmbeddingModelConfig(models.Model):
-    model_name: models.CharField = models.CharField(max_length=255)
-    model_provider: models.CharField = models.CharField(max_length=255)
-    is_active: models.BooleanField = models.BooleanField(default=False)
-    date_created: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    date_updated: models.DateTimeField = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ["-is_active", "date_created"]
-
-    def __str__(self) -> str:
-        return f"{self.model_name} ({self.model_provider})"
-
-
-class SearchConfig(models.Model):
-    name: models.CharField = models.CharField(max_length=255, unique=True)
-    package_path: models.CharField = models.CharField(max_length=255)
-    date_created: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    date_updated: models.DateTimeField = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ["name"]
-
-    def __str__(self) -> str:
-        return f"{self.name} ({self.package_path})"
 
 
 class ResourceChat(models.Model):
@@ -170,25 +71,12 @@ class Reference(models.Model):
         return f"Reference for Resource {self.resource_id}"
 
 
-class KnowledgeGraphConfig(models.Model):
-    name: models.CharField = models.CharField(max_length=255, unique=True)
-    package_name: models.CharField = models.CharField(
-        max_length=255, default="django_lightrag"
-    )
-    update_trigger: models.CharField = models.CharField(
-        max_length=255,
-        choices=[
-            ("always", "Each time I send a message"),
-            ("llm_intent", "When I ask for an update explicitly"),
-        ],
-        default="always",
-    )
-    is_active: models.BooleanField = models.BooleanField(default=False)
-    date_created: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    date_updated: models.DateTimeField = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ["name"]
-
-    def __str__(self) -> str:
-        return f"{self.name} ({self.package_name})"
+from conf.models import (
+    ChunkConfig,
+    EmbeddingModelConfig,
+    KnowledgeGraphConfig,
+    LLMConfig,
+    SearchConfig,
+    Secret,
+    TextExtractionConfig,
+)

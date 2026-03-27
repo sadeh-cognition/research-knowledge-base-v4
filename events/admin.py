@@ -4,9 +4,16 @@ from .models import Event, EventConsumer, EventConsumed
 
 @admin.register(Event)
 class EventAdmin(admin.ModelAdmin):
-    list_display = ("id", "entity", "entity_id", "description", "date_created")
-    list_filter = ("entity", "description", "date_created")
-    search_fields = ("entity_id", "description")
+    list_display = (
+        "id",
+        "entity",
+        "entity_id",
+        "description",
+        "triggered_by",
+        "date_created",
+    )
+    list_filter = ("entity", "description", "triggered_by", "date_created")
+    search_fields = ("entity_id", "description", "triggered_by")
 
 
 @admin.register(EventConsumer)

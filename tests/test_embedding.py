@@ -1,4 +1,5 @@
 import pytest
+from conf.models import EmbeddingProvider
 from kb.models import EmbeddingModelConfig
 from kb.services.chromadb_service import _get_embeddings
 
@@ -9,7 +10,7 @@ def test_embedding_config_exists():
     config = EmbeddingModelConfig.objects.filter(is_active=True).first()
     assert config is not None
     assert config.model_name == "text-embedding-embeddinggemma-300m"
-    assert config.model_provider == "LMStudio"
+    assert config.model_provider == EmbeddingProvider.LMSTUDIO
     assert config.is_active is True
 
 

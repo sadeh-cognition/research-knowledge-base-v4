@@ -1,20 +1,23 @@
 from typing import Iterable
 from django.contrib.auth import get_user_model
 
+from conf.models import LLMConfig
 from django_llm_chat.chat import Chat
 from django_llm_chat.models import Message, Chat as ChatModel
 
-from kb.models import LLMConfig, Resource, ResourceChat
+from kb.models import Resource, ResourceChat
 from kb.services import llm as llm_service
 
 User = get_user_model()
+DEFAULT_CHAT_USERNAME = "rkb-user"
+SYSTEM_USER_PASSWORD = "unused"
 
 
 def _get_or_create_chat_user() -> "User":
     """Get or create the default chat user for the app."""
     user, _ = User.objects.get_or_create(
-        username="rkb-user",
-        defaults={"password": "unused"},
+        username=DEFAULT_CHAT_USERNAME,
+        defaults={"password": SYSTEM_USER_PASSWORD},
     )
     return user
 

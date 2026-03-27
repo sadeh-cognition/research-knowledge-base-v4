@@ -13,6 +13,7 @@ class EventOut(Schema):
     entity_id: str
     entity_name: str | None = None
     description: str
+    triggered_by: str
     date_created: datetime
 
 

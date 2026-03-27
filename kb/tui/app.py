@@ -18,6 +18,17 @@ from textual.widgets import (
 import httpx
 from loguru import logger
 
+from conf.models import (
+    DEFAULT_KNOWLEDGE_GRAPH_PACKAGE_NAME,
+    KnowledgeGraphUpdateTrigger,
+)
+from kb.constants import (
+    DEFAULT_JINA_CONFIG_TITLE,
+    DEFAULT_SEARCH_CONFIG_NAME,
+    StreamUpdateType,
+)
+from kb.models import ResourceType
+from kb.services.llm import LLMProvider
 from kb.tui_logging_config import setup_textual_logging, setup_from_env
 
 BASE_URL = "http://localhost:8001/api"
@@ -469,7 +480,7 @@ class SearchConfigScreen(Container):
             Label("\n".join(configs_info)),
             Label("\n[bold]Create Search Config[/bold]"),
             Label("Name:"),
-            Input(placeholder="semantic search", id="search-config-name"),
+            Input(placeholder=DEFAULT_SEARCH_CONFIG_NAME, id="search-config-name"),
             Label("Package path:"),
             Input(
                 placeholder="kb.services.search_engines.semantic_search.search",
@@ -724,7 +735,8 @@ class ResearchKBApp(App):
             if response.status_code == 200:
                 configs = response.json()
                 jina_config = next(
-                    (c for c in configs if c["title"] == "JINA AI API"), None
+                    (c for c in configs if c.get("title") == DEFAULT_JINA_CONFIG_TITLE),
+                    None,
                 )
                 if jina_config:
                     # Check if secret exists
@@ -734,7 +746,8 @@ class ResearchKBApp(App):
                     )
                     if secret_response.status_code == 404:
                         self.notify(
-                            "JINA AI API key not configured! Please use /text-extraction-configs to add it.",
+                            f"{DEFAULT_JINA_CONFIG_TITLE} key not configured! "
+                            "Please use /text-extraction-configs to add it.",
                             severity="warning",
                             timeout=10.0,
                         )
@@ -952,8 +965,8 @@ class ResearchKBApp(App):
                 Label("[bold]Add a New Resource[/bold]"),
                 Label("URL:"),
                 Input(placeholder="https://example.com/paper.pdf", id="add-url"),
-                Label("Type (paper / blog_post):"),
-                Input(placeholder="paper", id="add-type"),
+                Label(f"Type ({ResourceType.PAPER} / {ResourceType.BLOG_POST}):"),
+                Input(placeholder=ResourceType.PAPER, id="add-type"),
                 Label("Press Enter on Type field to submit"),
                 classes="form-container",
             )
@@ -967,7 +980,7 @@ class ResearchKBApp(App):
         url_input = self.query_one("#add-url", Input)
         type_input = self.query_one("#add-type", Input)
         url = url_input.value.strip()
-        resource_type = type_input.value.strip() or "paper"
+        resource_type = type_input.value.strip() or ResourceType.PAPER
 
         if not url:
             self._show_message("[red]URL is required[/red]")
@@ -995,11 +1008,14 @@ class ResearchKBApp(App):
                                 update_data = json.loads(line)
                                 update = ResourceStreamUpdate(**update_data)
 
-                                if update.type == "status":
+                                if update.type == StreamUpdateType.STATUS:
                                     self._show_message(
                                         f"[yellow]{update.status}[/yellow]"
                                     )
-                                elif update.type == "result" and update.resource:
+                                elif (
+                                    update.type == StreamUpdateType.RESULT
+                                    and update.resource
+                                ):
                                     self.notify(
                                         f"Resource added!\n"
                                         f"ID: {update.resource.id}\n"
@@ -1286,14 +1302,14 @@ class ResearchKBApp(App):
                 (
                     config
                     for config in search_configs
-                    if config.get("name") == "semantic search"
+                    if config.get("name") == DEFAULT_SEARCH_CONFIG_NAME
                 ),
                 None,
             )
             if default_search_config is None:
                 self._show_message(
                     "[red]Cannot perform semantic search: default search config "
-                    "'semantic search' is missing.[/red]"
+                    f"'{DEFAULT_SEARCH_CONFIG_NAME}' is missing.[/red]"
                 )
                 return
         except Exception as e:
@@ -1341,8 +1357,10 @@ class ResearchKBApp(App):
                 Label(
                     "\n[bold]Setup Default LLM[/bold]\n[italic]This LLM will be used for all chats by default.\nYou can later use different models for different purposes.[/italic]"
                 ),
-                Label("Provider (e.g. openai, ollama, groq, openrouter):"),
-                Input(placeholder="openai", id="llm-provider"),
+                Label(
+                    f"Provider (e.g. {LLMProvider.OPENAI.value}, ollama, groq, openrouter):"
+                ),
+                Input(placeholder=LLMProvider.OPENAI.value, id="llm-provider"),
                 Label(
                     "Model name (e.g. groq/llama-3.1-8b-instant, ollama_chat/qwen3:4b, lm_studio/<model_name>, openai/gpt-4o):\nFor more info see: https://docs.litellm.ai/docs/#basic-usage"
                 ),
@@ -1359,7 +1377,7 @@ class ResearchKBApp(App):
         model_input = self.query_one("#llm-model", Input)
         api_key_input = self.query_one("#llm-api-key", Input)
 
-        provider = provider_input.value.strip() or "openai"
+        provider = provider_input.value.strip() or LLMProvider.OPENAI.value
         model_name = model_input.value.strip()
         api_key = api_key_input.value.strip()
 
@@ -1373,8 +1391,6 @@ class ResearchKBApp(App):
 
         try:
             from kb.schemas import DefaultLLMConfigIn
-
-            from kb.services.llm import LLMProvider
 
             try:
                 provider_enum = LLMProvider(provider)
@@ -1431,12 +1447,12 @@ class ResearchKBApp(App):
                 if configs:
                     for c in configs:
                         configs_info += f"  - {c.get('title')}\n"
-                        if c.get("title") == "JINA AI API":
+                        if c.get("title") == DEFAULT_JINA_CONFIG_TITLE:
                             jina_config_id = c.get("id")
                 else:
                     configs_info += "  [yellow]No configurations found.[/yellow]\n"
 
-                # Check secret for JINA AI API
+                # Check secret for the configured Jina extraction config
                 if jina_config_id is not None:
                     sec_response = httpx.get(
                         f"{BASE_URL}/text-extraction-configs/{jina_config_id}/secret/",
@@ -1444,9 +1460,7 @@ class ResearchKBApp(App):
                     )
                     if sec_response.status_code == 200:
                         jina_configured = True
-                        configs_info += (
-                            "\n[green]JINA AI API Key is configured.[/green]\n"
-                        )
+                        configs_info += f"\n[green]{DEFAULT_JINA_CONFIG_TITLE} Key is configured.[/green]\n"
 
         except Exception:
             logger.exception("Could not fetch configurations")
@@ -1458,7 +1472,7 @@ class ResearchKBApp(App):
             container.mount(
                 Container(
                     Label(configs_info),
-                    Label("\n[bold]Configure JINA AI API[/bold]"),
+                    Label(f"\n[bold]Configure {DEFAULT_JINA_CONFIG_TITLE}[/bold]"),
                     Label(
                         "Please provide your API key. Get a free API key at: https://jina.ai/reader/"
                     ),
@@ -1561,9 +1575,19 @@ class ResearchKBApp(App):
                 Label("Name:"),
                 Input(placeholder="Primary KG", id="kg-name"),
                 Label("Package name:"),
-                Input(placeholder="django_lightrag", id="kg-package-name"),
-                Label("Update trigger (always / llm_intent):"),
-                Input(placeholder="always", id="kg-update-trigger"),
+                Input(
+                    placeholder=DEFAULT_KNOWLEDGE_GRAPH_PACKAGE_NAME,
+                    id="kg-package-name",
+                ),
+                Label(
+                    "Update trigger "
+                    f"({KnowledgeGraphUpdateTrigger.ALWAYS} / "
+                    f"{KnowledgeGraphUpdateTrigger.LLM_INTENT}):"
+                ),
+                Input(
+                    placeholder=KnowledgeGraphUpdateTrigger.ALWAYS,
+                    id="kg-update-trigger",
+                ),
                 Label("Active? (true / false):"),
                 Input(placeholder="false", id="kg-active"),
                 Label("Press Enter on Active field to submit"),
@@ -1580,17 +1604,23 @@ class ResearchKBApp(App):
         active_input = self.query_one("#kg-active", Input)
 
         name = name_input.value.strip()
-        package_name = package_name_input.value.strip() or "django_lightrag"
-        update_trigger = update_trigger_input.value.strip() or "always"
+        package_name = (
+            package_name_input.value.strip() or DEFAULT_KNOWLEDGE_GRAPH_PACKAGE_NAME
+        )
+        update_trigger = (
+            update_trigger_input.value.strip() or KnowledgeGraphUpdateTrigger.ALWAYS
+        )
         active_raw = active_input.value.strip().lower() or "false"
 
         if not name:
             self._show_message("[red]Name is required.[/red]")
             return
 
-        if update_trigger not in {"always", "llm_intent"}:
+        if update_trigger not in set(KnowledgeGraphUpdateTrigger.values):
             self._show_message(
-                "[red]Update trigger must be 'always' or 'llm_intent'.[/red]"
+                "[red]Update trigger must be "
+                f"'{KnowledgeGraphUpdateTrigger.ALWAYS}' or "
+                f"'{KnowledgeGraphUpdateTrigger.LLM_INTENT}'.[/red]"
             )
             return
 

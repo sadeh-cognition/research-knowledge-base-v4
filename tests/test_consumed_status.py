@@ -27,7 +27,7 @@ def test_status_ok_on_success(monkeypatch):
     )
 
     baker.make(
-        "kb.LLMConfig",
+        "conf.LLMConfig",
         name="default",
         is_default=True,
         provider="groq",
@@ -54,7 +54,7 @@ def test_status_error_on_failure(monkeypatch):
     )
 
     baker.make(
-        "kb.LLMConfig",
+        "conf.LLMConfig",
         name="default",
         is_default=True,
         provider="groq",
@@ -89,7 +89,7 @@ def test_retry_failed_setting_false(monkeypatch, settings):
         description=EventDescriptions.TEXT_EXTRACTED,
     )
 
-    baker.make("kb.LLMConfig", is_default=True)
+    baker.make("conf.LLMConfig", is_default=True)
 
     # First run fails
     import events.consumers
@@ -128,7 +128,7 @@ def test_retry_failed_setting_true(monkeypatch, settings):
         description=EventDescriptions.TEXT_EXTRACTED,
     )
 
-    baker.make("kb.LLMConfig", is_default=True)
+    baker.make("conf.LLMConfig", is_default=True)
 
     # First run fails
     import events.consumers
