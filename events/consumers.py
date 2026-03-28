@@ -460,13 +460,14 @@ def consume_update_knowledge_graph() -> int:
             f"{message.type}: {message.text}" for message in messages if message.text
         )
 
+        if not full_content:
+            return None
+
         chunk_config = ChunkConfig.objects.first()
-        if chunk_config and full_content:
+        if chunk_config:
             chunks = chunking_service.chunk_text(full_content, chunk_config.details)
-        elif full_content:
-            chunks = [full_content]
         else:
-            chunks = []
+            chunks = [full_content]
 
         for index, chunk_text in enumerate(chunks):
             metadata = {
@@ -474,6 +475,7 @@ def consume_update_knowledge_graph() -> int:
                 "config_id": config_id,
                 "config_name": config.name,
                 "chunk_index": index,
+                "full_chat_text": full_content,
             }
             track_id = f"chat_{chat_id}_config_{config_id}_chunk_{index}"
             result = package.run_update(

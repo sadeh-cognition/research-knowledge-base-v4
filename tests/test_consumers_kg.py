@@ -130,3 +130,78 @@ class TestKGConsumers:
             Event.objects.get(id=event.id).eventconsumed_set.first().status
             == ConsumptionStatus.OK
         )
+
+    def test_consume_update_knowledge_graph_sends_full_chat_text_and_preserves_chunking(
+        self, monkeypatch, django_user_model
+    ):
+        config = KnowledgeGraphConfig.objects.create(
+            name="Test KG", package_name="test_dummy_pkg", is_active=True
+        )
+        chat = Chat.objects.create()
+        user = django_user_model.objects.create(username="kg-full-chat-user")
+        Message.objects.create(chat=chat, type="user", text="First message", user=user)
+        Message.objects.create(
+            chat=chat, type="assistant", text="Second reply", user=user
+        )
+        Message.objects.create(chat=chat, type="user", text="Third note", user=user)
+
+        Event.objects.create(
+            entity=EntityTypes.CHAT,
+            entity_id=f"{chat.id}:{config.id}",
+            description=EventDescriptions.KNOWLEDGE_GRAPH_UPDATE_REQUESTED,
+        )
+
+        full_chat_text = (
+            "user: First message\n\nassistant: Second reply\n\nuser: Third note"
+        )
+        calls = []
+
+        class DummyPackage:
+            @staticmethod
+            def run_update(*, content, metadata, track_id):
+                calls.append(
+                    {
+                        "content": content,
+                        "metadata": metadata,
+                        "track_id": track_id,
+                    }
+                )
+                return {"status": "ok"}
+
+        monkeypatch.setattr("events.consumers._is_pytest_mode", lambda: False)
+        monkeypatch.setattr(
+            "events.consumers.importlib.import_module",
+            lambda package_name: DummyPackage(),
+        )
+        monkeypatch.setattr(
+            "kb.services.chunking.chunk_text",
+            lambda text, details: ["chunk one", "chunk two"],
+        )
+
+        count = consume_update_knowledge_graph()
+
+        assert count == 1
+        assert calls == [
+            {
+                "content": "chunk one",
+                "metadata": {
+                    "chat_id": chat.id,
+                    "config_id": config.id,
+                    "config_name": config.name,
+                    "chunk_index": 0,
+                    "full_chat_text": full_chat_text,
+                },
+                "track_id": f"chat_{chat.id}_config_{config.id}_chunk_0",
+            },
+            {
+                "content": "chunk two",
+                "metadata": {
+                    "chat_id": chat.id,
+                    "config_id": config.id,
+                    "config_name": config.name,
+                    "chunk_index": 1,
+                    "full_chat_text": full_chat_text,
+                },
+                "track_id": f"chat_{chat.id}_config_{config.id}_chunk_1",
+            },
+        ]
