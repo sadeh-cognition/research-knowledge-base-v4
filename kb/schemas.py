@@ -220,3 +220,9 @@ class KnowledgeGraphConfigOut(Schema):
     is_active: bool
     date_created: datetime
     date_updated: datetime
+
+
+class KnowledgeGraphUpdateRequestOut(Schema):
+    chat_id: int
+    config_ids: list[int]
+    event_ids: list[int]

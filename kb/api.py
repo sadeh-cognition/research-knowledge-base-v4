@@ -49,6 +49,7 @@ from kb.schemas import (
     SearchContextOut,
     SearchConfigIn,
     SearchConfigOut,
+    KnowledgeGraphUpdateRequestOut,
 )
 from kb.services import chat as chat_service
 from kb.services import jina as jina_service
@@ -682,5 +683,32 @@ def delete_kg_config(request, config_id: int):
 
 
 api.add_router("/kg-configs", kg_config_router)
+
+
+@events_router.post(
+    "/knowledge-graph-update-requested/{chat_id}/",
+    response=KnowledgeGraphUpdateRequestOut,
+)
+def request_knowledge_graph_update(request, chat_id: int):
+    active_configs = list(KnowledgeGraphConfig.objects.filter(is_active=True))
+    event_ids = []
+    config_ids = []
+
+    for config in active_configs:
+        event = fire_event(
+            entity=EntityTypes.CHAT,
+            entity_id=f"{chat_id}:{config.id}",
+            description=EventDescriptions.KNOWLEDGE_GRAPH_UPDATE_REQUESTED,
+            triggered_by="TUI /kg-update",
+        )
+        event_ids.append(event.id)
+        config_ids.append(config.id)
+
+    return {
+        "chat_id": chat_id,
+        "config_ids": config_ids,
+        "event_ids": event_ids,
+    }
+
 
 api.add_router("/events", events_router)

@@ -1,10 +1,19 @@
+from io import StringIO
+
 import pytest
+from rich.console import Console
 from textual.widgets import Static, Label, Input, OptionList
 from kb.models import ResourceType
 from kb.tui.app import ResearchKBApp, _get_command_suggestions
 from unittest.mock import patch, MagicMock
 
 pytestmark = pytest.mark.asyncio
+
+
+def _render_widget_text(widget: Static) -> str:
+    console = Console(file=StringIO(), width=160, record=True)
+    console.print(widget.content)
+    return console.export_text()
 
 
 @pytest.fixture
@@ -118,7 +127,7 @@ async def test_show_resource_details_not_found(mock_httpx):
             await pilot.pause()
 
             welcome = app.query_one("#welcome", Static)
-            content = str(welcome.render())
+            content = _render_widget_text(welcome)
             assert "Resource 999 not found" in content
 
 
@@ -129,7 +138,7 @@ async def test_show_resource_details_invalid_id(mock_httpx):
         await pilot.pause()
 
         welcome = app.query_one("#welcome", Static)
-        content = str(welcome.render())
+        content = _render_widget_text(welcome)
         assert "Invalid resource ID. Must be a number." in content
 
 
@@ -154,6 +163,11 @@ async def test_resolve_command_with_slash(mock_httpx):
     cmd, canonical, args = _resolve_command("/chat-start 123")
     assert cmd is not None
     assert canonical == "/chat-start"
+    assert args == "123"
+
+    cmd, canonical, args = _resolve_command("/kg-update 123")
+    assert cmd is not None
+    assert canonical == "/kg-update"
     assert args == "123"
 
 
@@ -222,7 +236,7 @@ async def test_bare_command_error_message(mock_httpx):
 
         # Check the error message
         welcome = app.query_one("#welcome", Static)
-        content = str(welcome.render())
+        content = _render_widget_text(welcome)
         assert "Commands must start with a forward slash" in content
         assert "/help" in content
 
@@ -242,7 +256,7 @@ async def test_slash_help_renders_commands(mock_httpx):
 
         # Check the help text
         welcome = app.query_one("#welcome", Static)
-        content = str(welcome.render())
+        content = _render_widget_text(welcome)
 
         # Verify all implemented commands are listed
         assert "/help" in content
@@ -256,6 +270,7 @@ async def test_slash_help_renders_commands(mock_httpx):
         assert "/llm-configs" in content
         assert "/text-extraction-configs" in content
         assert "/kg-configs" in content
+        assert "/kg-update" in content
         assert "/search-configs" in content
 
         # Verify the slash requirement hint is present
@@ -275,21 +290,21 @@ async def test_slash_aliases_in_help(mock_httpx):
         await pilot.pause()
 
         welcome = app.query_one("#welcome", Static)
-        content = str(welcome.render())
+        content = _render_widget_text(welcome)
 
-        # Check that aliases are shown in some form
-        assert "/h" in content  # help alias
-        assert "/ra" in content  # resource-add alias
-        assert "/rl" in content  # resource-list alias
-        assert "/rd" in content  # resource-details alias
-        assert "/cl" in content  # chat-list alias
-        assert "/cs" in content  # chat-start alias
-        assert "/cc" in content  # chat-continue alias
-        assert "/ss" in content  # search alias
-        assert "/lc" in content  # llm-configs alias
-        assert "/tec" in content  # text-extraction-configs alias
-        assert "/kgc" in content  # kg-configs alias
-        assert "/sc" in content  # search-configs alias
+        assert "/h" in content
+        assert "/ra" in content
+        assert "/rl" in content
+        assert "/rd" in content
+        assert "/cl" in content
+        assert "/cs" in content
+        assert "/cc" in content
+        assert "/ss" in content
+        assert "/lc" in content
+        assert "/tec" in content
+        assert "/kgc" in content
+        assert "/kgu" in content
+        assert "/sc" in content
 
 
 # ---- Autocomplete Tests ----
@@ -326,9 +341,10 @@ async def test_format_help_text_contains_all_commands(mock_httpx):
     """Test that _format_help_text includes all registered commands."""
     from kb.tui.app import _format_help_text, _get_all_commands
 
-    help_text = _format_help_text()
+    console = Console(file=StringIO(), width=160, record=True)
+    console.print(_format_help_text())
+    help_text = console.export_text()
 
-    # Verify all canonical commands are present
     commands = _get_all_commands()
     for cmd in commands:
         assert cmd.name in help_text
@@ -354,6 +370,7 @@ async def test_command_registry_has_all_commands(mock_httpx):
         "/llm-configs",
         "/text-extraction-configs",
         "/kg-configs",
+        "/kg-update",
         "/search-configs",
     ]
 
@@ -366,6 +383,13 @@ async def test_kg_configs_registered(mock_httpx):
     from kb.tui.app import COMMAND_REGISTRY
 
     assert "/kg-configs" in COMMAND_REGISTRY
+
+
+async def test_kg_update_registered(mock_httpx):
+    """Test that kg-update is registered."""
+    from kb.tui.app import COMMAND_REGISTRY
+
+    assert "/kg-update" in COMMAND_REGISTRY
 
 
 async def test_search_configs_registered(mock_httpx):
@@ -389,7 +413,7 @@ async def test_help_command_via_alias(mock_httpx):
         await pilot.pause()
 
         welcome = app.query_one("#welcome", Static)
-        content = str(welcome.render())
+        content = _render_widget_text(welcome)
         assert "/help" in content
 
 
@@ -454,6 +478,6 @@ async def test_input_submit_applies_autocomplete_selection(mock_httpx):
         await pilot.pause()
 
         welcome = app.query_one("#welcome", Static)
-        content = str(welcome.render())
+        content = _render_widget_text(welcome)
         assert "Unknown command: /res" not in content
         assert "No resources found" in content

@@ -1,6 +1,9 @@
 from dataclasses import dataclass
 from typing import Callable, Awaitable
 
+from rich.console import Group, RenderableType
+from rich.table import Table
+from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
@@ -93,18 +96,39 @@ def _get_all_commands() -> list[Command]:
     return sorted(result, key=lambda c: c.name)
 
 
-def _format_help_text() -> str:
-    """Generate help text from the command registry."""
+def _format_welcome_text() -> str:
+    """Generate the initial welcome text."""
+    cmd = COMMAND_REGISTRY["/help"]
     lines = ["[bold]Welcome to Research Knowledge Base[/bold]\n", "Commands:"]
-
-    for cmd in _get_all_commands():
-        alias_str = f" ({', '.join(cmd.aliases)})" if cmd.aliases else ""
-        lines.append(f"  [bold]{cmd.name}[/bold]{alias_str}")
-        lines.append(f"      Usage: {cmd.usage}")
-        lines.append(f"      {cmd.description}")
-
+    lines.append(f"  [bold]{cmd.name}[/bold]")
+    lines.append(f"      Usage: {cmd.usage}")
+    lines.append(f"      {cmd.description}")
     lines.append("\n[italic]All commands must start with / (e.g., /help)[/italic]")
     return "\n".join(lines)
+
+
+def _format_help_text() -> RenderableType:
+    """Generate help text from the command registry."""
+    table = Table(expand=True, show_lines=False)
+    table.add_column("Command", style="bold", no_wrap=True)
+    table.add_column("Aliases", no_wrap=True)
+    table.add_column("Usage", no_wrap=True)
+    table.add_column("Description")
+
+    for cmd in _get_all_commands():
+        table.add_row(
+            cmd.name,
+            ", ".join(cmd.aliases) if cmd.aliases else "-",
+            cmd.usage,
+            cmd.description,
+        )
+
+    return Group(
+        Text("Welcome to Research Knowledge Base", style="bold"),
+        Text("Commands:"),
+        table,
+        Text("All commands must start with / (e.g., /help)", style="italic"),
+    )
 
 
 def _get_command_suggestions(partial: str) -> list[Command]:
@@ -504,8 +528,11 @@ class ResearchKBApp(App):
     }
 
     #welcome {
-        content-align: center middle;
+        content-align: left top;
         height: 1fr;
+        width: 100%;
+        padding: 1 2;
+        overflow-y: auto;
     }
 
     #command-input {
@@ -930,7 +957,7 @@ class ResearchKBApp(App):
         if result is not None:
             await result
 
-    def _show_message(self, text: str) -> None:
+    def _show_message(self, text: RenderableType) -> None:
         container = self.query_one("#main-container", Container)
         welcome = (
             container.query_one("#welcome", Static)
@@ -948,7 +975,14 @@ class ResearchKBApp(App):
             logger.exception("Error showing welcome message")
 
     def _show_welcome(self) -> None:
-        """Show the welcome/help screen with commands from the registry."""
+        """Show the initial welcome screen."""
+        self._show_message(_format_welcome_text())
+        command_input = self.query_one("#command-input", Input)
+        command_input.display = True
+        command_input.focus()
+
+    def _show_help(self) -> None:
+        """Show the full help screen."""
         self._show_message(_format_help_text())
         command_input = self.query_one("#command-input", Input)
         command_input.display = True
@@ -1661,6 +1695,49 @@ class ResearchKBApp(App):
             logger.exception("An error occurred")
             self._show_message(f"[red]Error: {e}[/red]")
 
+    def _request_kg_update(self, chat_id_str: str) -> None:
+        if not chat_id_str:
+            self._show_message(
+                "[red]Usage: /kg-update <chat_id> (or /kgu <chat_id>)[/red]\n"
+                "Use /chat-list to see available chats."
+            )
+            return
+
+        try:
+            chat_id = int(chat_id_str)
+        except ValueError:
+            self._show_message("[red]Invalid chat ID. Must be a number.[/red]")
+            return
+
+        try:
+            response = httpx.post(
+                f"{BASE_URL}/events/knowledge-graph-update-requested/{chat_id}/",
+                timeout=10.0,
+            )
+            if response.status_code == 200:
+                data = response.json()
+                config_ids = data.get("config_ids", [])
+                if not config_ids:
+                    self._show_message(
+                        "[yellow]No active knowledge graph configs found. "
+                        "Use /kg-configs to activate one.[/yellow]"
+                    )
+                    return
+
+                self.notify(
+                    f"Queued knowledge graph update for chat {chat_id}.\n"
+                    f"Configs: {', '.join(str(config_id) for config_id in config_ids)}\n"
+                    f"Events created: {len(data.get('event_ids', []))}",
+                    title="Success",
+                    severity="information",
+                )
+                self._show_welcome()
+            else:
+                self._show_message(f"[red]Error: {response.text}[/red]")
+        except Exception as e:
+            logger.exception("An error occurred")
+            self._show_message(f"[red]Error: {e}[/red]")
+
     # ---- Search Configs ----
 
     def _show_search_configs(self) -> None:
@@ -1855,7 +1932,7 @@ class ResearchKBApp(App):
 
 def _cmd_help(app: ResearchKBApp, args: str) -> None:
     """Show help screen."""
-    app._show_welcome()
+    app._show_help()
 
 
 def _cmd_add(app: ResearchKBApp, args: str) -> None:
@@ -1906,6 +1983,11 @@ def _cmd_text_extraction_configs(app: ResearchKBApp, args: str) -> None:
 def _cmd_kg_configs(app: ResearchKBApp, args: str) -> None:
     """Configure knowledge graph settings."""
     app._show_kg_configs()
+
+
+def _cmd_kg_update(app: ResearchKBApp, args: str) -> None:
+    """Request a knowledge graph update for a chat."""
+    app._request_kg_update(args)
 
 
 def _cmd_search_configs(app: ResearchKBApp, args: str) -> None:
@@ -2032,6 +2114,17 @@ _register_command(
         description="Configure knowledge graph settings",
         takes_argument=False,
         handler=_cmd_kg_configs,
+    )
+)
+
+_register_command(
+    Command(
+        name="/kg-update",
+        aliases=["/kgu"],
+        usage="/kg-update <chat_id>",
+        description="Queue a knowledge graph update for a chat",
+        takes_argument=True,
+        handler=_cmd_kg_update,
     )
 )
 

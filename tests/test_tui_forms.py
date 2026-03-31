@@ -264,6 +264,30 @@ async def test_submit_kg_config_form_posts_payload(
         assert app.query("#welcome")
 
 
+async def test_kg_update_posts_chat_specific_request(
+    mock_httpx_responses, mock_httpx_post
+):
+    app = ResearchKBApp()
+    async with app.run_test() as pilot:
+        with patch.object(app, "notify") as mock_notify:
+            mock_httpx_post.return_value.json.return_value = {
+                "chat_id": 42,
+                "config_ids": [1],
+                "event_ids": [10],
+            }
+            app._request_kg_update("42")
+            await pilot.pause()
+            await pilot.wait_for_animation()
+
+        mock_httpx_post.assert_called_once()
+        assert (
+            mock_httpx_post.call_args.args[0]
+            == "http://localhost:8001/api/events/knowledge-graph-update-requested/42/"
+        )
+        mock_notify.assert_called_once()
+        assert app.query("#welcome")
+
+
 async def test_search_config_screen_renders_existing_configs_and_form(
     mock_httpx_responses,
 ):
