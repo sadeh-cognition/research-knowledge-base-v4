@@ -1,7 +1,5 @@
 import pytest
-import traceback
 from model_bakery import baker
-from django.conf import settings
 from events.models import (
     EventConsumed,
     ConsumptionStatus,
@@ -12,7 +10,6 @@ from events.services import fire_event
 from events.consumers import (
     consume_clean_up_extracted_text,
     get_or_create_consumer,
-    consume_summarize,
 )
 
 pytestmark = pytest.mark.django_db
@@ -62,8 +59,6 @@ def test_status_error_on_failure(monkeypatch):
     )
 
     # Force a failure in the consumer
-    import events.consumers
-
     def mock_fail(*args, **kwargs):
         raise ValueError("Simulated failure")
 
@@ -92,8 +87,6 @@ def test_retry_failed_setting_false(monkeypatch, settings):
     baker.make("conf.LLMConfig", is_default=True)
 
     # First run fails
-    import events.consumers
-
     monkeypatch.setattr(
         "events.consumers.get_object_or_404",
         lambda *a, **k: exec('raise ValueError("Fail 1")'),
@@ -131,8 +124,6 @@ def test_retry_failed_setting_true(monkeypatch, settings):
     baker.make("conf.LLMConfig", is_default=True)
 
     # First run fails
-    import events.consumers
-
     def fail1(*a, **k):
         raise ValueError("Fail 1")
 

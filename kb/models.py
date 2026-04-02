@@ -69,14 +69,3 @@ class Reference(models.Model):
 
     def __str__(self) -> str:
         return f"Reference for Resource {self.resource_id}"
-
-
-from conf.models import (
-    ChunkConfig,
-    EmbeddingModelConfig,
-    KnowledgeGraphConfig,
-    LLMConfig,
-    SearchConfig,
-    Secret,
-    TextExtractionConfig,
-)

@@ -1,4 +1,3 @@
-import pytest
 import os
 from unittest.mock import patch, MagicMock
 from kb.api import test_llm_connection as call_test_connection

@@ -1,26 +1,27 @@
 import pytest
 from tests.test_api import client
-from kb.models import Resource, Reference
+from kb.models import Reference
 from events.models import Event, EntityTypes, EventDescriptions
 from events.consumers import consume_extract_references
 from kb.schemas import ResourceOut
+
 
 @pytest.mark.django_db
 class TestReferenceExtraction:
     def test_consume_extract_references(self, resource, llm_config):
         # Create an event for the resource
-        event = Event.objects.create(
+        Event.objects.create(
             entity=EntityTypes.RESOURCE,
             entity_id=str(resource.id),
-            description=EventDescriptions.CLEAN_UP_FINISHED
+            description=EventDescriptions.CLEAN_UP_FINISHED,
         )
-        
+
         # Run the consumer
         count = consume_extract_references()
-        
+
         # Check that one event was processed
         assert count == 1
-        
+
         # Check that a Reference object was created
         assert Reference.objects.filter(resource=resource).exists()
         ref = Reference.objects.get(resource=resource)
@@ -29,17 +30,19 @@ class TestReferenceExtraction:
 
     def test_api_returns_references(self, resource, llm_config):
         # Create a reference manually
-        Reference.objects.create(resource=resource, description="Test Reference Description")
-        
+        Reference.objects.create(
+            resource=resource, description="Test Reference Description"
+        )
+
         response = client.get(f"/resources/{resource.id}/")
         assert response.status_code == 200
         data = response.json()
-        
+
         # Verify references are in the response
         assert "references" in data
         assert len(data["references"]) == 1
         assert data["references"][0]["description"] == "Test Reference Description"
-        
+
         # Parse with schema to ensure it's valid
         parsed = ResourceOut(**data)
         assert len(parsed.references) == 1

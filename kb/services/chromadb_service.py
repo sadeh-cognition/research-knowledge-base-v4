@@ -1,9 +1,6 @@
 import chromadb
-import httpx
 from conf.models import EmbeddingModelConfig
 from django.conf import settings
-
-
 from embed_gen.generator import generate_embeddings
 
 

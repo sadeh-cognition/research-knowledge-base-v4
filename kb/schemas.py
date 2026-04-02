@@ -7,7 +7,7 @@ from conf.models import (
     KnowledgeGraphUpdateTrigger,
 )
 from ninja import Schema
-from kb.constants import DEFAULT_SEARCH_CONFIG_NAME, StreamUpdateType
+from kb.constants import StreamUpdateType
 from kb.models import ResourceType
 from kb.services.llm import LLMProvider
 

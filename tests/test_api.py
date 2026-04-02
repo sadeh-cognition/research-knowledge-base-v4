@@ -14,9 +14,9 @@ from kb.constants import (
 )
 from kb.models import LLMConfig, ResourceType, SearchConfig, Secret
 from kb.schemas import (
+    DefaultLLMConfigIn,
     LLMConfigIn,
     LLMConfigOut,
-    DefaultLLMConfigIn,
     ResourceListOut,
     SecretIn,
     SecretOut,
@@ -54,7 +54,7 @@ class TestResourceEndpoints:
     def test_create_resource_streaming(self, db):
         import json
         from django.test import Client
-        from kb.schemas import ResourceIn, ResourceStreamUpdate
+        from kb.schemas import ResourceStreamUpdate
 
         django_client = Client()
         payload = {"url": "https://example.com", "resource_type": ResourceType.PAPER}

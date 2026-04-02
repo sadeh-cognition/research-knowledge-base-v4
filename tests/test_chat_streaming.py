@@ -1,11 +1,9 @@
 import pytest
 from django.test import Client
 from model_bakery import baker
-from kb.models import Resource, LLMConfig
 import json
-
-
 import os
+from kb.models import Resource
 
 
 @pytest.mark.django_db
